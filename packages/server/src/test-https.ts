@@ -11,7 +11,7 @@ async function testHTTPSServer() {
   console.log('🧪 Testing HTTPS Server Setup\n');
 
   // Start servers on test ports
-  const servers = await startServers({ http: 9456, https: 9457 });
+  const servers = await startServers({ http: 9456, https: 9457, proxy: 9888 });
 
   console.log('\n✅ Servers started successfully!\n');
 

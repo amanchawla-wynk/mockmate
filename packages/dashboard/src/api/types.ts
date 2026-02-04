@@ -33,6 +33,7 @@ export interface Resource {
   path: string;
   description?: string;
   scenarios: Scenario[];
+  passthrough?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -45,6 +46,7 @@ export interface Project {
   activeScenario: string;
   environmentVariables?: EnvironmentVariable[];
   baseUrl?: string;
+  passthroughEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -59,6 +61,7 @@ export interface RequestLogEntry {
   statusCode: number;
   duration: number;
   scenarioFromHeader?: boolean;
+  proxied?: boolean;
 }
 
 export interface ServerStatus {
@@ -82,6 +85,8 @@ export interface UpdateProjectRequest {
   name?: string;
   description?: string;
   activeScenario?: string;
+  baseUrl?: string;
+  passthroughEnabled?: boolean;
 }
 
 export interface ImportCurlRequest {
@@ -114,6 +119,7 @@ export interface UpdateResourceRequest {
   method?: HttpMethod;
   path?: string;
   description?: string;
+  passthrough?: boolean;
 }
 
 export interface CreateScenarioRequest {

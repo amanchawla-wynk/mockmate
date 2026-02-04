@@ -51,6 +51,7 @@ export function createProject(request: CreateProjectRequest): Project {
     description: description?.trim(),
     activeScenario: 'default',
     baseUrl: baseUrl?.trim(),
+    passthroughEnabled: false,
     environmentVariables: [],
     createdAt: now,
     updatedAt: now,
@@ -132,6 +133,7 @@ export function updateProject(id: string, updates: UpdateProjectRequest): Projec
     description: updates.description?.trim() ?? project.description,
     activeScenario: updates.activeScenario ?? project.activeScenario,
     baseUrl: updates.baseUrl?.trim() ?? project.baseUrl,
+    passthroughEnabled: updates.passthroughEnabled ?? project.passthroughEnabled,
     environmentVariables: updates.environmentVariables ?? project.environmentVariables,
     updatedAt: new Date().toISOString(),
   };

@@ -145,6 +145,7 @@ export function updateResource(
     method: updates.method ?? resource.method,
     path: updates.path ?? resource.path,
     description: updates.description ?? resource.description,
+    passthrough: updates.passthrough ?? resource.passthrough,
     updatedAt: new Date().toISOString(),
   };
 

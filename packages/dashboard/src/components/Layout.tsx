@@ -8,7 +8,7 @@ import { ProjectList } from './ProjectList';
 import { ProjectModal } from './ProjectModal';
 
 interface LayoutProps {
-  children: (activeProjectId: string | undefined, deactivateProject: () => Promise<void>) => ReactNode;
+  children: (activeProjectId: string | undefined, deactivateProject: () => Promise<void>, activeProject: import('../api/types').Project | undefined, refreshProjects: () => Promise<void>) => ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
@@ -17,6 +17,7 @@ export default function Layout({ children }: LayoutProps) {
     activeProjectId,
     loading,
     error,
+    refresh,
     createProject,
     activateProject,
     deactivateProject,
@@ -63,7 +64,7 @@ export default function Layout({ children }: LayoutProps) {
 
         {/* Main content area */}
         <main className="flex-1 p-6">
-          {children(activeProjectId, deactivateProject)}
+          {children(activeProjectId, deactivateProject, projects.find(p => p.id === activeProjectId), refresh)}
         </main>
       </div>
 

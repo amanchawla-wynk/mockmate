@@ -91,7 +91,7 @@ export function generateServerCert(ca: CertificateData, domains: string[]): Cert
   // Create certificate
   const cert = forge.pki.createCertificate();
   cert.publicKey = keys.publicKey;
-  cert.serialNumber = '02';
+  cert.serialNumber = forge.util.bytesToHex(forge.random.getBytesSync(16));
 
   // Set validity period (1 year)
   const notBefore = new Date();

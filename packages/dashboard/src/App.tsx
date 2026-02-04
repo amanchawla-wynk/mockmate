@@ -11,7 +11,8 @@ import { ScenarioSwitcher } from './components/ScenarioSwitcher';
 import { DeviceSetup } from './components/DeviceSetup';
 import { useResources } from './hooks/useResources';
 import { serverApi } from './api/client';
-import type { ServerStatus, Resource } from './api/types';
+import { PassthroughSettings } from './components/PassthroughSettings';
+import type { ServerStatus, Resource, Project } from './api/types';
 
 function App() {
   const [status, setStatus] = useState<ServerStatus | null>(null);
@@ -37,10 +38,12 @@ function App() {
 
   return (
     <Layout>
-      {(activeProjectId, deactivateProject) => (
+      {(activeProjectId, deactivateProject, activeProject, refreshProjects) => (
         <AppContent
           activeProjectId={activeProjectId}
+          activeProject={activeProject}
           deactivateProject={deactivateProject}
+          refreshProjects={refreshProjects}
           status={status}
           loading={loading}
           error={error}
@@ -53,14 +56,16 @@ function App() {
 
 interface AppContentProps {
   activeProjectId: string | undefined;
+  activeProject: Project | undefined;
   deactivateProject: () => Promise<void>;
+  refreshProjects: () => Promise<void>;
   status: ServerStatus | null;
   loading: boolean;
   error: string | null;
   onRefreshStatus: () => Promise<void>;
 }
 
-function AppContent({ activeProjectId, deactivateProject, status, loading, error, onRefreshStatus }: AppContentProps) {
+function AppContent({ activeProjectId, activeProject, deactivateProject, refreshProjects, status, loading, error, onRefreshStatus }: AppContentProps) {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
 
@@ -217,6 +222,14 @@ function AppContent({ activeProjectId, deactivateProject, status, loading, error
                   />
                 )}
               </div>
+
+              {/* Passthrough Settings */}
+              {activeProject && (
+                <PassthroughSettings
+                  project={activeProject}
+                  onUpdate={refreshProjects}
+                />
+              )}
 
               {selectedResource ? (
                 <div className="bg-white rounded-lg shadow p-6">

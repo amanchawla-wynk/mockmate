@@ -218,7 +218,7 @@ export function ProjectModal({ isOpen, onClose, onSubmit }: ProjectModalProps) {
                     maxLength={200}
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    Optional base URL for documentation purposes
+                    Real API server URL for passthrough mode (e.g., https://api.example.com)
                   </p>
                 </div>
               </>

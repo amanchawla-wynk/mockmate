@@ -7,24 +7,27 @@
 import express, { type Application } from 'express';
 import * as http from 'http';
 import * as https from 'https';
+import * as net from 'net';
 import * as path from 'path';
 import * as fs from 'fs';
 import cors from 'cors';
 import adminRouter from './routes/admin';
 import setupRouter from './routes/setup';
 import { mockRequestHandler } from './routes/mock';
-import { initializeStorage } from './services/storage';
 import { ensureCertificates } from './services/certs';
 import { getLocalIPAddresses } from './services/network';
+import { createProxyServer } from './services/proxy-server';
 
 export interface ServerPorts {
   http: number;
   https: number;
+  proxy: number;
 }
 
 export interface ServerInstances {
   httpServer: http.Server;
   httpsServer: https.Server;
+  proxyServer: net.Server;
   app: Application;
 }
 
@@ -33,9 +36,6 @@ export interface ServerInstances {
  */
 export function createApp(): Application {
   const app = express();
-
-  // Initialize storage on app creation
-  initializeStorage();
 
   // ============================================================================
   // Middleware
@@ -118,7 +118,7 @@ export function createApp(): Application {
  * @returns Promise resolving to server instances
  */
 export async function startServers(
-  ports: ServerPorts = { http: 3456, https: 3457 }
+  ports: ServerPorts = { http: 3456, https: 3457, proxy: 8888 }
 ): Promise<ServerInstances> {
   const app = createApp();
 
@@ -156,12 +156,20 @@ export async function startServers(
     httpsServer.on('error', reject);
   });
 
+  // Start HTTP proxy server for device interception
+  const { server: proxyServer } = await createProxyServer({
+    port: ports.proxy,
+    caCert: certs.ca.cert,
+    caKey: certs.ca.privateKey,
+  });
+
   // Log server information
   logServerInfo(ports, localIPs);
 
   return {
     httpServer,
     httpsServer,
+    proxyServer,
     app,
   };
 }
@@ -191,8 +199,14 @@ function logServerInfo(ports: ServerPorts, localIPs: string[]): void {
   }
   console.log('');
 
-  // Device Setup
+  // Proxy
   const primaryIP = localIPs[0] || 'localhost';
+  console.log('🔀 HTTP Proxy (for transparent interception):');
+  console.log(`   Proxy: ${primaryIP}:${ports.proxy}`);
+  console.log('   Set your device WiFi proxy to this address');
+  console.log('');
+
+  // Device Setup
   console.log('📲 Device Setup:');
   console.log(`   http://${primaryIP}:${ports.http}/setup`);
   console.log('');

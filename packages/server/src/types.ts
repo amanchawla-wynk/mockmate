@@ -62,6 +62,8 @@ export interface Resource {
   description?: string;
   /** Available scenarios for this resource */
   scenarios: Scenario[];
+  /** Whether to bypass mock and proxy to real server for this resource */
+  passthrough?: boolean;
   /** Timestamp when created */
   createdAt: string;
   /** Timestamp when last updated */
@@ -96,8 +98,10 @@ export interface Project {
   activeScenario: string;
   /** Environment variables for this project */
   environmentVariables?: EnvironmentVariable[];
-  /** Base URL for documentation purposes */
+  /** Base URL of the real API server (used for passthrough/proxy mode) */
   baseUrl?: string;
+  /** Whether passthrough mode is enabled (forward unmatched requests to baseUrl) */
+  passthroughEnabled?: boolean;
   /** Timestamp when created */
   createdAt: string;
   /** Timestamp when last updated */
@@ -116,6 +120,8 @@ export interface GlobalConfig {
     httpPort?: number;
     /** HTTPS port (default: 3457) */
     httpsPort?: number;
+    /** HTTP proxy port (default: 8888) */
+    proxyPort?: number;
   };
 }
 
@@ -141,6 +147,8 @@ export interface RequestLogEntry {
   duration: number;
   /** Whether scenario was specified via header */
   scenarioFromHeader?: boolean;
+  /** Whether response was proxied from real server */
+  proxied?: boolean;
 }
 
 /**
@@ -172,6 +180,7 @@ export interface UpdateProjectRequest {
   description?: string;
   activeScenario?: string;
   baseUrl?: string;
+  passthroughEnabled?: boolean;
   environmentVariables?: EnvironmentVariable[];
 }
 
@@ -185,6 +194,7 @@ export interface UpdateResourceRequest {
   method?: HttpMethod;
   path?: string;
   description?: string;
+  passthrough?: boolean;
 }
 
 export interface CreateScenarioRequest {

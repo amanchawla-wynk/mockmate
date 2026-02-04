@@ -3,7 +3,7 @@
  * Static HTML page for device setup instructions
  */
 
-export function setupPageHTML(primaryIP: string, httpsPort: number, allIPs: string[]): string {
+export function setupPageHTML(primaryIP: string, httpsPort: number, allIPs: string[], proxyPort: number = 8888): string {
   const httpsURL = `https://${primaryIP}:${httpsPort}`;
   const httpURL = `http://${primaryIP}:3456`; // For setup access
 
@@ -332,9 +332,42 @@ export function setupPageHTML(primaryIP: string, httpsPort: number, allIPs: stri
                 ` : ''}
             </div>
 
+            <!-- Proxy Mode -->
+            <div class="section">
+                <h2>🔀 Proxy Mode (Transparent Interception)</h2>
+                <p style="margin-bottom: 15px;">
+                    Instead of pointing your app to MockMate's URL, you can configure your device to use MockMate
+                    as an HTTP proxy. This lets your app call real API URLs while MockMate intercepts and returns mocks.
+                </p>
+                <div class="url-box">
+                    <div class="label">HTTP Proxy Address:</div>
+                    <div class="url">${primaryIP}:${proxyPort}</div>
+                </div>
+                <ol class="steps">
+                    <li>
+                        <strong>Install the CA certificate</strong> (see below) — required for HTTPS interception
+                    </li>
+                    <li>
+                        <strong>Configure your device WiFi proxy:</strong><br>
+                        <em>iOS:</em> Settings → WiFi → tap your network → Configure Proxy → Manual → Server: <code>${primaryIP}</code>, Port: <code>${proxyPort}</code><br>
+                        <em>Android:</em> Settings → WiFi → long-press your network → Modify → Proxy: Manual → Host: <code>${primaryIP}</code>, Port: <code>${proxyPort}</code>
+                    </li>
+                    <li>
+                        <strong>Set your project's Base URL</strong> to the real API (e.g., <code>https://api.example.com</code>) in the MockMate dashboard
+                    </li>
+                    <li>
+                        <strong>Use your app normally</strong> — MockMate will intercept matching requests and return mocks
+                    </li>
+                </ol>
+                <div class="warning">
+                    <strong>💡 Tip:</strong> Only requests to your project's Base URL domain are intercepted.
+                    All other traffic (Google, Apple, etc.) passes through unmodified.
+                </div>
+            </div>
+
             <!-- Platform Tabs -->
             <div class="section">
-                <h2>⚙️ Setup Instructions</h2>
+                <h2>⚙️ Certificate Setup Instructions</h2>
                 <div class="platform-tabs">
                     <button class="tab-button active" onclick="switchTab('ios')">iOS</button>
                     <button class="tab-button" onclick="switchTab('android')">Android</button>

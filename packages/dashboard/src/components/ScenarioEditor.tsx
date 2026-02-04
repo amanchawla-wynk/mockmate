@@ -8,7 +8,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { InputDialog } from './InputDialog';
 import { QueryParamsTable } from './QueryParamsTable';
 import { ResponseHeadersTable } from './ResponseHeadersTable';
-import { scenariosApi } from '../api/client';
+import { scenariosApi, resourcesApi } from '../api/client';
 import type { Resource, Scenario, UpdateScenarioRequest, QueryParam } from '../api/types';
 
 interface ScenarioEditorProps {
@@ -36,6 +36,7 @@ export function ScenarioEditor({ projectId, resource, onUpdate }: ScenarioEditor
   const [duplicateScenario, setDuplicateScenario] = useState<Scenario | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteScenarioName, setDeleteScenarioName] = useState<string | null>(null);
+  const [togglingPassthrough, setTogglingPassthrough] = useState(false);
 
   const getActiveTab = (scenarioName: string): TabType => {
     return activeTab[scenarioName] || 'response';
@@ -186,6 +187,20 @@ export function ScenarioEditor({ projectId, resource, onUpdate }: ScenarioEditor
     return !!editingScenario[scenarioName];
   };
 
+  const handleTogglePassthrough = async () => {
+    try {
+      setTogglingPassthrough(true);
+      await resourcesApi.update(projectId, resource.id, {
+        passthrough: !resource.passthrough,
+      });
+      onUpdate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to toggle passthrough');
+    } finally {
+      setTogglingPassthrough(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -197,14 +212,49 @@ export function ScenarioEditor({ projectId, resource, onUpdate }: ScenarioEditor
             {resource.scenarios.length} scenario{resource.scenarios.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleAddScenario}
-          className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-        >
-          + Add Scenario
-        </button>
+        <div className="flex items-center gap-4">
+          {/* Per-resource passthrough toggle */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!resource.passthrough}
+              onClick={handleTogglePassthrough}
+              disabled={togglingPassthrough}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 ${
+                resource.passthrough ? 'bg-amber-500' : 'bg-gray-300'
+              } ${togglingPassthrough ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                  resource.passthrough ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+            <span className="text-xs text-gray-600">Passthrough</span>
+          </label>
+
+          <button
+            type="button"
+            onClick={handleAddScenario}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+          >
+            + Add Scenario
+          </button>
+        </div>
       </div>
+
+      {/* Passthrough notice */}
+      {resource.passthrough && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2">
+          <svg className="w-4 h-4 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-sm text-amber-800">
+            Passthrough enabled — requests to this endpoint will be forwarded to the real server. Mock scenarios below are bypassed.
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
@@ -212,7 +262,7 @@ export function ScenarioEditor({ projectId, resource, onUpdate }: ScenarioEditor
         </div>
       )}
 
-      <div className="space-y-2">
+      <div className={`space-y-2 ${resource.passthrough ? 'opacity-50 pointer-events-none' : ''}`}>
         {resource.scenarios.map((scenario) => {
           const isExpanded = expandedScenario === scenario.name;
           const edited = getEditedScenario(scenario);

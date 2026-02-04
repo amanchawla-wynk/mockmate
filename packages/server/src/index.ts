@@ -4,7 +4,7 @@
  */
 
 import { startServers } from './app';
-import { readConfig } from './services/storage';
+import { initializeStorage, readConfig } from './services/storage';
 import open from 'open';
 
 /**
@@ -12,13 +12,17 @@ import open from 'open';
  */
 async function main() {
   try {
+    // Ensure storage directories and config exist (first-run setup)
+    initializeStorage();
+
     // Read server configuration
     const config = readConfig();
     const httpPort = config.server?.httpPort || 3456;
     const httpsPort = config.server?.httpsPort || 3457;
+    const proxyPort = config.server?.proxyPort || 8888;
 
-    // Start both HTTP and HTTPS servers
-    await startServers({ http: httpPort, https: httpsPort });
+    // Start HTTP, HTTPS, and proxy servers
+    await startServers({ http: httpPort, https: httpsPort, proxy: proxyPort });
 
     // Auto-open browser (only if not in production)
     if (process.env.NODE_ENV !== 'production') {

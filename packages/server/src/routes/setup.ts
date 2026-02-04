@@ -8,6 +8,7 @@ import * as QRCode from 'qrcode';
 import { loadCertificates } from '../services/certs';
 import { generateiOSProfile, generateAndroidNetworkConfig } from '../services/certs/profile';
 import { getLocalIPAddresses } from '../services/network';
+import { readConfig } from '../services/storage';
 import { setupPageHTML } from './setup-page';
 
 const router = Router();
@@ -19,10 +20,12 @@ const router = Router();
 router.get('/', (req: Request, res: Response) => {
   const localIPs = getLocalIPAddresses();
   const primaryIP = localIPs[0] || 'localhost';
-  const httpsPort = 3457; // TODO: Get from config
+  const config = readConfig();
+  const httpsPort = config.server?.httpsPort || 3457;
+  const proxyPort = config.server?.proxyPort || 8888;
 
   res.setHeader('Content-Type', 'text/html');
-  res.send(setupPageHTML(primaryIP, httpsPort, localIPs));
+  res.send(setupPageHTML(primaryIP, httpsPort, localIPs, proxyPort));
 });
 
 /**

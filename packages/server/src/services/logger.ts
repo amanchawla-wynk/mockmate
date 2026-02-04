@@ -68,7 +68,8 @@ export function logRequest(
   duration: number,
   resourceId?: string,
   scenario?: string,
-  scenarioFromHeader?: boolean
+  scenarioFromHeader?: boolean,
+  proxied?: boolean
 ): RequestLogEntry {
   return addLogEntry({
     timestamp: new Date().toISOString(),
@@ -79,5 +80,6 @@ export function logRequest(
     resourceId,
     scenario,
     scenarioFromHeader,
+    proxied,
   });
 }

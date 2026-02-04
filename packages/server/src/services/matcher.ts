@@ -29,6 +29,8 @@ export interface ResponseConfig {
   body: any;
   delay: number;
   scenario: string;
+  /** Whether this resource should be proxied to the real server */
+  passthrough?: boolean;
 }
 
 /**
@@ -254,5 +256,12 @@ export function handleRequest(
   console.log(`  - Resolved to: ${scenario.name}`);
 
   // Build response
-  return buildResponse(scenario, match.params);
+  const response = buildResponse(scenario, match.params);
+
+  // Propagate passthrough flag from resource
+  if (match.resource.passthrough) {
+    response.passthrough = true;
+  }
+
+  return response;
 }
