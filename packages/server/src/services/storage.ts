@@ -12,7 +12,9 @@ import type { GlobalConfig, StorageConfig } from '../types';
  * Get storage configuration paths
  */
 export function getStorageConfig(): StorageConfig {
-  const baseDir = path.join(os.homedir(), '.mockmate');
+  const baseDir = process.env.MOCKMATE_DATA_DIR
+    ? path.resolve(process.env.MOCKMATE_DATA_DIR)
+    : path.join(os.homedir(), '.mockmate');
   return {
     baseDir,
     projectsDir: path.join(baseDir, 'projects'),
@@ -55,7 +57,13 @@ export function initializeStorage(): void {
  */
 export function readConfig(): GlobalConfig {
   const config = getStorageConfig();
-  return readJsonFile<GlobalConfig>(config.configFile);
+  try {
+    return readJsonFile<GlobalConfig>(config.configFile);
+  } catch (error) {
+    // First run or test environment — create storage + default config.
+    initializeStorage();
+    return readJsonFile<GlobalConfig>(config.configFile);
+  }
 }
 
 /**

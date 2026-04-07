@@ -9,7 +9,7 @@ import { InputDialog } from './InputDialog';
 import { QueryParamsTable } from './QueryParamsTable';
 import { ResponseHeadersTable } from './ResponseHeadersTable';
 import { scenariosApi, resourcesApi } from '../api/client';
-import type { Resource, Scenario, UpdateScenarioRequest, QueryParam } from '../api/types';
+import type { Resource, Scenario, UpdateScenarioRequest } from '../api/types';
 
 interface ScenarioEditorProps {
   projectId: string;
@@ -37,6 +37,16 @@ export function ScenarioEditor({ projectId, resource, onUpdate }: ScenarioEditor
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteScenarioName, setDeleteScenarioName] = useState<string | null>(null);
   const [togglingPassthrough, setTogglingPassthrough] = useState(false);
+  const [showAllMatch, setShowAllMatch] = useState(false);
+
+  const matchQueryEntries = Object.entries(resource.match?.query ?? {});
+  const matchHeaderEntries = Object.entries(resource.match?.headers ?? {});
+  const matchItems = [
+    ...matchQueryEntries.map(([key, value]) => ({ kind: 'query' as const, key, value })),
+    ...matchHeaderEntries.map(([key, value]) => ({ kind: 'header' as const, key, value })),
+  ];
+  const visibleMatchItems = showAllMatch ? matchItems : matchItems.slice(0, 4);
+  const hiddenMatchCount = Math.max(0, matchItems.length - visibleMatchItems.length);
 
   const getActiveTab = (scenarioName: string): TabType => {
     return activeTab[scenarioName] || 'response';
@@ -211,6 +221,43 @@ export function ScenarioEditor({ projectId, resource, onUpdate }: ScenarioEditor
           <p className="text-sm text-gray-500 mt-1">
             {resource.scenarios.length} scenario{resource.scenarios.length !== 1 ? 's' : ''}
           </p>
+
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-[11px] text-gray-700">
+              <span className="text-gray-500">host</span>
+              <span className="font-mono">{resource.host ?? '*'}</span>
+            </span>
+
+            {matchItems.length === 0 ? (
+              <span className="text-[11px] text-gray-400">no match conditions</span>
+            ) : (
+              <>
+                {visibleMatchItems.map((m) => (
+                  <span
+                    key={`${m.kind}:${m.key}`}
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] font-mono ${
+                      m.kind === 'query'
+                        ? 'bg-sky-50 border-sky-200 text-sky-800'
+                        : 'bg-amber-50 border-amber-200 text-amber-800'
+                    }`}
+                    title={m.kind === 'query' ? `Query: ${m.key}=${m.value}` : `Header: ${m.key}: ${m.value}`}
+                  >
+                    {m.kind === 'query' ? `?${m.key}=${m.value}` : `${m.key}: ${m.value}`}
+                  </span>
+                ))}
+
+                {matchItems.length > 4 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllMatch((v) => !v)}
+                    className="text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
+                  >
+                    {showAllMatch ? 'Show less' : `+${hiddenMatchCount} more`}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-4">
           {/* Per-resource passthrough toggle */}
@@ -271,6 +318,13 @@ export function ScenarioEditor({ projectId, resource, onUpdate }: ScenarioEditor
           const hasChanges = hasUnsavedChanges(scenario.name);
           const tab = getActiveTab(scenario.name);
 
+          const qp = (edited.queryParams ?? []).filter((p) => (p.key ?? '').trim().length > 0);
+          const qpPreview = qp
+            .slice(0, 2)
+            .map((p) => `${p.key}=${p.value}`)
+            .join(', ');
+          const qpSuffix = qp.length > 2 ? ` (+${qp.length - 2})` : '';
+
           return (
             <div
               key={scenario.name}
@@ -313,7 +367,7 @@ export function ScenarioEditor({ projectId, resource, onUpdate }: ScenarioEditor
                       )}
                     </div>
                     <div className="text-xs text-gray-500 mt-0.5">
-                      Status: {edited.statusCode} • Delay: {edited.delay}ms
+                      Status: {edited.statusCode} • Delay: {edited.delay}ms{qp.length > 0 ? ` • Query: ${qpPreview}${qpSuffix}` : ''}
                     </div>
                   </div>
                 </div>

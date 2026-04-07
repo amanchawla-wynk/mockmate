@@ -24,7 +24,7 @@ import {
  * @throws Error if project with same name already exists
  */
 export function createProject(request: CreateProjectRequest): Project {
-  const { name, description, baseUrl } = request;
+  const { name, description, baseUrl, interceptHosts } = request;
 
   // Validate name
   if (!name || name.trim().length === 0) {
@@ -50,9 +50,12 @@ export function createProject(request: CreateProjectRequest): Project {
     slug,
     description: description?.trim(),
     activeScenario: 'default',
+    baseScenario: 'default',
     baseUrl: baseUrl?.trim(),
     passthroughEnabled: false,
+    interceptHosts: Array.isArray(interceptHosts) ? interceptHosts.filter(Boolean) : undefined,
     environmentVariables: [],
+    captureRawTraffic: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -114,7 +117,14 @@ function getProjectBySlug(slug: string): Project {
   const projectDir = getProjectDirectory(slug);
   const projectFile = path.join(projectDir, 'project.json');
 
-  return readJsonFile<Project>(projectFile);
+  const p = readJsonFile<any>(projectFile);
+  // Backfill fields for older saved projects.
+  return {
+    ...p,
+    activeScenario: typeof p.activeScenario === 'string' && p.activeScenario.trim() ? p.activeScenario : 'default',
+    baseScenario: typeof p.baseScenario === 'string' && p.baseScenario.trim() ? p.baseScenario : 'default',
+    captureRawTraffic: typeof p.captureRawTraffic === 'boolean' ? p.captureRawTraffic : false,
+  } as Project;
 }
 
 /**
@@ -132,9 +142,12 @@ export function updateProject(id: string, updates: UpdateProjectRequest): Projec
     name: updates.name?.trim() ?? project.name,
     description: updates.description?.trim() ?? project.description,
     activeScenario: updates.activeScenario ?? project.activeScenario,
+    baseScenario: updates.baseScenario ?? project.baseScenario,
     baseUrl: updates.baseUrl?.trim() ?? project.baseUrl,
     passthroughEnabled: updates.passthroughEnabled ?? project.passthroughEnabled,
     environmentVariables: updates.environmentVariables ?? project.environmentVariables,
+    interceptHosts: updates.interceptHosts ?? project.interceptHosts,
+    captureRawTraffic: updates.captureRawTraffic ?? project.captureRawTraffic,
     updatedAt: new Date().toISOString(),
   };
 

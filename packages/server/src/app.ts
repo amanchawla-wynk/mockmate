@@ -12,7 +12,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import cors from 'cors';
 import adminRouter from './routes/admin';
+import { getActiveProject } from './services/projects';
+import { getStaticFilesRoot } from './services/fixtures';
 import setupRouter from './routes/setup';
+import automationRouter from './routes/automation';
 import { mockRequestHandler } from './routes/mock';
 import { ensureCertificates } from './services/certs';
 import { getLocalIPAddresses } from './services/network';
@@ -69,6 +72,9 @@ export function createApp(): Application {
   // Mount setup router on /setup prefix
   app.use('/setup', setupRouter);
 
+  // Lightweight automation helpers (XCUITest/Espresso)
+  app.use(automationRouter);
+
   // ============================================================================
   // Health Check
   // ============================================================================
@@ -81,18 +87,77 @@ export function createApp(): Application {
   });
 
   // ============================================================================
+  // Static File Upload (raw body — must come before express.json middleware)
+  // ============================================================================
+
+  // The admin upload endpoint needs raw bytes, not JSON-parsed body.
+  // We register it here with express.raw() BEFORE the catch-all json middleware
+  // that runs on adminRouter, so the raw body is preserved.
+  app.post(
+    '/api/admin/projects/:id/static-files',
+    express.raw({ type: '*/*', limit: process.env.MOCKMATE_STATIC_UPLOAD_LIMIT ?? '500mb' }),
+    (req, _res, next) => { next(); },
+  );
+
+  // ============================================================================
+  // Static Files (Automation Media)
+  // ============================================================================
+
+  // Serve static files from the active project's static_files/ directory.
+  // Falls back to MOCKMATE_STATIC_DIR env var for developer convenience.
+  app.use('/static_files', (req, res, next) => {
+    // Env-var override (e.g. developer pointing at repo static_files directly)
+    const envDir = process.env.MOCKMATE_STATIC_DIR;
+    if (envDir && fs.existsSync(envDir)) {
+      return express.static(envDir)(req, res, next);
+    }
+    // Per-project directory
+    const project = getActiveProject();
+    if (!project) {
+      res.status(503).json({ error: 'No active project' });
+      return;
+    }
+    const root = getStaticFilesRoot(project.slug);
+    if (!fs.existsSync(root)) {
+      res.status(404).send('No static_files for this project. Upload files via the Static Files view.');
+      return;
+    }
+    return express.static(root)(req, res, next);
+  });
+
+  // ============================================================================
   // Dashboard Static Files
   // ============================================================================
 
-  // Serve dashboard static files from dist/public
-  const publicDir = path.join(__dirname, 'public');
-  if (fs.existsSync(publicDir)) {
+  // Serve dashboard static files.
+  // In production, assets live under dist/public next to compiled JS.
+  // In dev (tsx), __dirname points to src/, so we also search common workspace paths.
+  const dashboardCandidates = [
+    path.join(__dirname, 'public'),
+    path.resolve(__dirname, '../dist/public'),
+    path.resolve(process.cwd(), 'dist/public'),
+    path.resolve(process.cwd(), '../server/dist/public'),
+    path.resolve(__dirname, '../../dashboard/dist'),
+    path.resolve(process.cwd(), '../dashboard/dist'),
+  ];
+  const publicDir = dashboardCandidates.find((p) =>
+    fs.existsSync(p) && fs.existsSync(path.join(p, 'index.html'))
+  );
+
+  if (publicDir) {
     app.use(express.static(publicDir));
 
     // Serve index.html for all non-API/non-setup routes (SPA routing)
     app.get('*', (req, res, next) => {
       // Let API and setup routes pass through
-      if (req.path.startsWith('/api') || req.path.startsWith('/setup') || req.path === '/health') {
+      if (
+        req.path.startsWith('/api') ||
+        req.path.startsWith('/setup') ||
+        req.path.startsWith('/static_files') ||
+        req.path === '/health' ||
+        req.path === '/setMockServerflags' ||
+        req.path === '/getMockServerData'
+      ) {
         next();
       } else {
         // Serve dashboard for all other routes

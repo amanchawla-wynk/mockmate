@@ -12,7 +12,7 @@ import type {
   CreateScenarioRequest,
   UpdateScenarioRequest,
 } from '../types';
-import { generateId, generateResourceFilename } from '../utils/slugify';
+import { generateId } from '../utils/slugify';
 import {
   getResourcesDirectory,
   readJsonFile,
@@ -22,6 +22,74 @@ import {
 } from './storage';
 import { getProject } from './projects';
 
+function normalizeHost(host?: string): string | undefined {
+  const h = (host ?? '').trim().toLowerCase();
+  return h.length > 0 ? h : undefined;
+}
+
+function normalizeMatch(match?: { query?: Record<string, string>; headers?: Record<string, string> }):
+  { query?: Record<string, string>; headers?: Record<string, string> } | undefined {
+  if (!match) return undefined;
+  const query: Record<string, string> = {};
+  const headers: Record<string, string> = {};
+
+  if (match.query) {
+    for (const [k, v] of Object.entries(match.query)) {
+      const key = (k ?? '').trim();
+      const val = (v ?? '').trim();
+      if (key && val) query[key] = val;
+    }
+  }
+  if (match.headers) {
+    for (const [k, v] of Object.entries(match.headers)) {
+      const key = (k ?? '').trim().toLowerCase();
+      const val = (v ?? '').trim();
+      if (key && val) headers[key] = val;
+    }
+  }
+
+  const result: { query?: Record<string, string>; headers?: Record<string, string> } = {};
+  if (Object.keys(query).length > 0) result.query = query;
+  if (Object.keys(headers).length > 0) result.headers = headers;
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function shallowEqualRecord(a?: Record<string, string>, b?: Record<string, string>): boolean {
+  const aKeys = Object.keys(a ?? {});
+  const bKeys = Object.keys(b ?? {});
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    if ((a ?? {})[k] !== (b ?? {})[k]) return false;
+  }
+  return true;
+}
+
+function shallowEqualMatch(
+  a?: { query?: Record<string, string>; headers?: Record<string, string> },
+  b?: { query?: Record<string, string>; headers?: Record<string, string> },
+): boolean {
+  return shallowEqualRecord(a?.query, b?.query) && shallowEqualRecord(a?.headers, b?.headers);
+}
+
+function findResourceFilePath(projectSlug: string, resourceId: string): string {
+  const resourcesDir = getResourcesDirectory(projectSlug);
+  const files = listFiles(resourcesDir).filter(f => f.endsWith('.json'));
+
+  for (const file of files) {
+    const filePath = path.join(resourcesDir, file);
+    try {
+      const resource = readJsonFile<Resource>(filePath);
+      if (resource.id === resourceId) {
+        return filePath;
+      }
+    } catch {
+      // ignore invalid resource files
+    }
+  }
+
+  throw new Error(`Resource file for ID "${resourceId}" not found`);
+}
+
 /**
  * Create a new resource with default scenario
  */
@@ -29,7 +97,7 @@ export function createResource(
   projectId: string,
   request: CreateResourceRequest
 ): Resource {
-  const { method, path: resourcePath, description } = request;
+  const { method, host, path: resourcePath, description, match } = request;
 
   // Validate project exists
   const project = getProject(projectId);
@@ -44,6 +112,9 @@ export function createResource(
     throw new Error('Path must start with /');
   }
 
+  const normalizedHost = normalizeHost(host);
+  const normalizedMatch = normalizeMatch(match);
+
   // Generate resource
   const now = new Date().toISOString();
   const defaultScenario: Scenario = {
@@ -57,7 +128,9 @@ export function createResource(
   const resource: Resource = {
     id: generateId('res'),
     method,
+    host: normalizedHost,
     path: resourcePath,
+    match: normalizedMatch,
     description,
     scenarios: [defaultScenario],
     createdAt: now,
@@ -66,14 +139,19 @@ export function createResource(
 
   // Save resource to file
   const resourcesDir = getResourcesDirectory(project.slug);
-  const filename = generateResourceFilename(method, resourcePath);
-  const filePath = path.join(resourcesDir, filename);
 
-  // Check if resource already exists
-  if (require('fs').existsSync(filePath)) {
-    throw new Error(`Resource ${method} ${resourcePath} already exists in this project`);
+  // Check if an identical rule already exists (same method/host/path/match)
+  const existing = listResources(projectId).find(r =>
+    r.method === method &&
+    normalizeHost(r.host) === normalizedHost &&
+    r.path === resourcePath &&
+    shallowEqualMatch(normalizeMatch(r.match), normalizedMatch)
+  );
+  if (existing) {
+    throw new Error(`Resource rule already exists for ${method} ${normalizedHost ? normalizedHost + ' ' : ''}${resourcePath}`);
   }
 
+  const filePath = path.join(resourcesDir, `${resource.id}.json`);
   writeJsonFile(filePath, resource);
 
   return resource;
@@ -133,19 +211,17 @@ export function updateResource(
 ): Resource {
   const project = getProject(projectId);
   const resource = getResource(projectId, resourceId);
-  const resourcesDir = getResourcesDirectory(project.slug);
-
-  // Calculate old and potentially new file paths
-  const oldFilename = generateResourceFilename(resource.method, resource.path);
-  const oldFilePath = path.join(resourcesDir, oldFilename);
+  const filePath = findResourceFilePath(project.slug, resourceId);
 
   // Apply updates
   const updatedResource: Resource = {
     ...resource,
     method: updates.method ?? resource.method,
+    host: updates.host !== undefined ? normalizeHost(updates.host) : resource.host,
     path: updates.path ?? resource.path,
     description: updates.description ?? resource.description,
     passthrough: updates.passthrough ?? resource.passthrough,
+    match: updates.match !== undefined ? normalizeMatch(updates.match) : resource.match,
     updatedAt: new Date().toISOString(),
   };
 
@@ -154,28 +230,22 @@ export function updateResource(
     throw new Error('Path must start with /');
   }
 
-  // If method or path changed, we need to rename the file
-  if (updates.method || updates.path) {
-    const newFilename = generateResourceFilename(
-      updatedResource.method,
-      updatedResource.path
-    );
-    const newFilePath = path.join(resourcesDir, newFilename);
-
-    // Check if new filename conflicts with existing resource
-    if (newFilename !== oldFilename && require('fs').existsSync(newFilePath)) {
-      throw new Error(
-        `Resource ${updatedResource.method} ${updatedResource.path} already exists`
-      );
-    }
-
-    // Delete old file and write to new location
-    deleteFile(oldFilePath);
-    writeJsonFile(newFilePath, updatedResource);
-  } else {
-    // Just update the existing file
-    writeJsonFile(oldFilePath, updatedResource);
+  // Prevent conflicting identical rules
+  const updatedHost = normalizeHost(updatedResource.host);
+  const updatedMatch = normalizeMatch(updatedResource.match);
+  const conflict = listResources(projectId).find(r =>
+    r.id !== resourceId &&
+    r.method === updatedResource.method &&
+    normalizeHost(r.host) === updatedHost &&
+    r.path === updatedResource.path &&
+    shallowEqualMatch(normalizeMatch(r.match), updatedMatch)
+  );
+  if (conflict) {
+    throw new Error(`Resource ${updatedResource.method} ${updatedHost ? updatedHost + ' ' : ''}${updatedResource.path} already exists`);
   }
+
+  // Just update the existing file (resource files are keyed by id)
+  writeJsonFile(filePath, updatedResource);
 
   return updatedResource;
 }
@@ -185,12 +255,7 @@ export function updateResource(
  */
 export function deleteResource(projectId: string, resourceId: string): void {
   const project = getProject(projectId);
-  const resource = getResource(projectId, resourceId);
-  const resourcesDir = getResourcesDirectory(project.slug);
-
-  const filename = generateResourceFilename(resource.method, resource.path);
-  const filePath = path.join(resourcesDir, filename);
-
+  const filePath = findResourceFilePath(project.slug, resourceId);
   deleteFile(filePath);
 }
 
@@ -219,7 +284,9 @@ export function addScenario(
     name: request.name.trim(),
     statusCode: request.statusCode ?? 200,
     body: request.body ?? {},
+    fixture: request.fixture,
     headers: request.headers ?? {},
+    responseHeaders: request.responseHeaders,
     delay: request.delay ?? 0,
   };
 
@@ -232,10 +299,7 @@ export function addScenario(
 
   // Save updated resource
   const project = getProject(projectId);
-  const resourcesDir = getResourcesDirectory(project.slug);
-  const filename = generateResourceFilename(resource.method, resource.path);
-  const filePath = path.join(resourcesDir, filename);
-
+  const filePath = findResourceFilePath(project.slug, resourceId);
   writeJsonFile(filePath, updatedResource);
 
   return updatedResource;
@@ -264,6 +328,7 @@ export function updateScenario(
     ...updatedScenarios[scenarioIndex],
     statusCode: updates.statusCode ?? updatedScenarios[scenarioIndex].statusCode,
     body: updates.body ?? updatedScenarios[scenarioIndex].body,
+    fixture: updates.fixture ?? updatedScenarios[scenarioIndex].fixture,
     headers: updates.headers ?? updatedScenarios[scenarioIndex].headers,
     responseHeaders: updates.responseHeaders ?? updatedScenarios[scenarioIndex].responseHeaders,
     requestBody: updates.requestBody ?? updatedScenarios[scenarioIndex].requestBody,
@@ -279,10 +344,7 @@ export function updateScenario(
 
   // Save updated resource
   const project = getProject(projectId);
-  const resourcesDir = getResourcesDirectory(project.slug);
-  const filename = generateResourceFilename(resource.method, resource.path);
-  const filePath = path.join(resourcesDir, filename);
-
+  const filePath = findResourceFilePath(project.slug, resourceId);
   writeJsonFile(filePath, updatedResource);
 
   return updatedResource;
@@ -320,10 +382,7 @@ export function deleteScenario(
 
   // Save updated resource
   const project = getProject(projectId);
-  const resourcesDir = getResourcesDirectory(project.slug);
-  const filename = generateResourceFilename(resource.method, resource.path);
-  const filePath = path.join(resourcesDir, filename);
-
+  const filePath = findResourceFilePath(project.slug, resourceId);
   writeJsonFile(filePath, updatedResource);
 
   return updatedResource;
@@ -365,10 +424,7 @@ export function duplicateScenario(
 
   // Save updated resource
   const project = getProject(projectId);
-  const resourcesDir = getResourcesDirectory(project.slug);
-  const filename = generateResourceFilename(resource.method, resource.path);
-  const filePath = path.join(resourcesDir, filename);
-
+  const filePath = findResourceFilePath(project.slug, resourceId);
   writeJsonFile(filePath, updatedResource);
 
   return updatedResource;

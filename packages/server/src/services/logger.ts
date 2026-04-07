@@ -9,7 +9,12 @@ import { generateId } from '../utils/slugify';
 /**
  * Maximum number of log entries to keep in memory
  */
-const MAX_LOG_ENTRIES = 100;
+const MAX_LOG_ENTRIES = (() => {
+  const raw = process.env.MOCKMATE_LOG_LIMIT;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  if (Number.isFinite(n) && n > 0) return n;
+  return 500;
+})();
 
 /**
  * In-memory log storage
@@ -69,7 +74,21 @@ export function logRequest(
   resourceId?: string,
   scenario?: string,
   scenarioFromHeader?: boolean,
-  proxied?: boolean
+  proxied?: boolean,
+  details?: {
+    scenarioSource?: RequestLogEntry['scenarioSource'];
+    proxiedReason?: RequestLogEntry['proxiedReason'];
+    responseFixture?: RequestLogEntry['responseFixture'];
+    host?: string;
+    requestHeaders?: Record<string, string>;
+    requestQuery?: Record<string, string>;
+    requestBody?: any;
+
+    responseHeaders?: Record<string, string>;
+    responseBody?: any;
+    responseBodyTruncated?: boolean;
+    responseSize?: number;
+  }
 ): RequestLogEntry {
   return addLogEntry({
     timestamp: new Date().toISOString(),
@@ -81,5 +100,6 @@ export function logRequest(
     scenario,
     scenarioFromHeader,
     proxied,
+    ...(details ?? {}),
   });
 }

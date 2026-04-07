@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "npm run prebuild && tsx watch src/index.ts",
     "prebuild": "cd ../dashboard && npm run build && mkdir -p ../server/dist/public && cp -r dist/* ../server/dist/public/",
     "build": "tsc",
     "start": "node dist/index.js",

@@ -25,10 +25,55 @@ import {
   duplicateScenario,
 } from '../services/resources';
 import { getLogEntries, clearLogEntries } from '../services/logger';
+import {
+  readHttpResponseFixture,
+  resolveFixturePath,
+  writeHttpResponseFixture,
+  getStaticFilesRoot,
+  resolveStaticFilePath,
+  listStaticFiles,
+  writeStaticFile,
+  deleteStaticFile,
+} from '../services/fixtures';
+import * as fs from 'fs';
+import * as path from 'path';
 import { parseCurl, parseMultipleCurls } from '../utils/curl-parser';
 import { parsePostmanCollection } from '../utils/postman-parser';
+import { readConfig } from '../services/storage';
+import { getLocalIPAddresses } from '../services/network';
 
 const router = Router();
+
+function safeProjectFilePath(projectSlug: string, relPath: string): string {
+  return resolveFixturePath(projectSlug, relPath);
+}
+
+function shallowEqualRecord(a?: Record<string, string>, b?: Record<string, string>): boolean {
+  const aKeys = Object.keys(a ?? {});
+  const bKeys = Object.keys(b ?? {});
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    if ((a ?? {})[k] !== (b ?? {})[k]) return false;
+  }
+  return true;
+}
+
+function replaceAllKeys(value: any, key: string, replacement: any): any {
+  if (Array.isArray(value)) {
+    for (const item of value) replaceAllKeys(item, key, replacement);
+    return value;
+  }
+  if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      if (k === key) {
+        (value as any)[k] = replacement;
+      } else {
+        replaceAllKeys(v, key, replacement);
+      }
+    }
+  }
+  return value;
+}
 
 // ============================================================================
 // Project Routes
@@ -327,6 +372,10 @@ router.post(
 router.get('/status', (req: Request, res: Response) => {
   try {
     const activeProject = getActiveProject();
+    const config = readConfig();
+    const httpPort = config.server?.httpPort || 3456;
+    const httpsPort = config.server?.httpsPort || 3457;
+    const proxyPort = config.server?.proxyPort || 8888;
 
     res.json({
       status: 'running',
@@ -335,8 +384,15 @@ router.get('/status', (req: Request, res: Response) => {
             id: activeProject.id,
             name: activeProject.name,
             activeScenario: activeProject.activeScenario,
+            baseScenario: activeProject.baseScenario,
           }
         : null,
+      server: {
+        httpPort,
+        httpsPort,
+        proxyPort,
+        localIPs: getLocalIPAddresses(),
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -351,7 +407,57 @@ router.get('/status', (req: Request, res: Response) => {
 router.get('/logs', (req: Request, res: Response) => {
   try {
     const logs = getLogEntries();
-    res.json(logs);
+    const method = typeof req.query.method === 'string' ? req.query.method.toUpperCase() : undefined;
+    const host = typeof req.query.host === 'string' ? req.query.host : undefined;
+    const path = typeof req.query.path === 'string' ? req.query.path : undefined;
+    const pathPrefix = typeof req.query.pathPrefix === 'string' ? req.query.pathPrefix : undefined;
+    const proxied = typeof req.query.proxied === 'string' ? req.query.proxied : undefined;
+
+    const filtered = logs.filter((l) => {
+      if (method && l.method !== method) return false;
+      if (host && l.host !== host) return false;
+      if (path && l.path !== path) return false;
+      if (pathPrefix && !l.path.startsWith(pathPrefix)) return false;
+      if (proxied === 'true' && l.proxied !== true) return false;
+      if (proxied === 'false' && l.proxied === true) return false;
+      return true;
+    });
+
+    res.json(filtered);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * GET /api/admin/logs/last
+ * Return the most recent log entry matching optional filters.
+ */
+router.get('/logs/last', (req: Request, res: Response) => {
+  try {
+    const logs = getLogEntries();
+    const method = typeof req.query.method === 'string' ? req.query.method.toUpperCase() : undefined;
+    const host = typeof req.query.host === 'string' ? req.query.host : undefined;
+    const path = typeof req.query.path === 'string' ? req.query.path : undefined;
+    const pathPrefix = typeof req.query.pathPrefix === 'string' ? req.query.pathPrefix : undefined;
+    const proxied = typeof req.query.proxied === 'string' ? req.query.proxied : undefined;
+
+    const entry = logs.find((l) => {
+      if (method && l.method !== method) return false;
+      if (host && l.host !== host) return false;
+      if (path && l.path !== path) return false;
+      if (pathPrefix && !l.path.startsWith(pathPrefix)) return false;
+      if (proxied === 'true' && l.proxied !== true) return false;
+      if (proxied === 'false' && l.proxied === true) return false;
+      return true;
+    });
+
+    if (!entry) {
+      res.status(404).json({ error: 'Not Found' });
+      return;
+    }
+
+    res.json(entry);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -367,6 +473,199 @@ router.delete('/logs', (req: Request, res: Response) => {
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * GET /api/admin/projects/:id/fixtures/*
+ * Download a fixture file stored under the project's directory.
+ */
+router.get('/projects/:id/fixtures/*', (req: Request, res: Response) => {
+  try {
+    const project = getProject(req.params.id);
+    const rel = String((req.params as any)[0] ?? '');
+    const relPath = rel.startsWith('fixtures/') ? rel : `fixtures/${rel}`;
+    const abs = safeProjectFilePath(project.slug, relPath);
+    if (!fs.existsSync(abs)) {
+      res.status(404).json({ error: 'Not Found' });
+      return;
+    }
+    res.sendFile(abs);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * POST /api/admin/projects/:id/logs/:logId/create-rule
+ * Create (or reuse) a rule from a traffic log entry, saving the response as a raw HTTP fixture.
+ * Body: { scenarioName?: string }
+ */
+router.post('/projects/:id/logs/:logId/create-rule', (req: Request, res: Response) => {
+  try {
+    const project = getProject(req.params.id);
+    const activeProject = getActiveProject();
+    if (!activeProject || activeProject.id !== project.id) {
+      res.status(400).json({
+        error: 'Project is not active',
+        message: 'Activate this project before creating rules from traffic.',
+      });
+      return;
+    }
+
+    const entry = getLogEntries().find(l => l.id === req.params.logId);
+    if (!entry) {
+      res.status(404).json({ error: 'Log entry not found' });
+      return;
+    }
+
+    const scenarioNameRaw = typeof req.body?.scenarioName === 'string' ? req.body.scenarioName : '';
+    const scenarioName = (scenarioNameRaw.trim() || activeProject.activeScenario || 'default').trim();
+
+    if (!entry.responseFixture?.path) {
+      res.status(400).json({
+        error: 'Missing raw response fixture',
+        message: 'Enable captureRawTraffic on the project to create rules from proxied traffic.',
+      });
+      return;
+    }
+
+    const method = entry.method;
+    const host = entry.host;
+    const reqPath = entry.path;
+    const matchQuery = entry.requestQuery && Object.keys(entry.requestQuery).length > 0
+      ? Object.fromEntries(Object.keys(entry.requestQuery).map((k) => [k, '*']))
+      : undefined;
+
+    // Find existing identical resource (same method/host/path/match.query).
+    const existing = listResources(project.id).find(r =>
+      r.method === method &&
+      (r.host ?? undefined) === (host ?? undefined) &&
+      r.path === reqPath &&
+      shallowEqualRecord(r.match?.query, matchQuery)
+    );
+
+    const resource = existing ?? createResource(project.id, {
+      method,
+      host,
+      path: reqPath,
+      match: matchQuery ? { query: matchQuery } : undefined,
+    });
+
+    const destRel = `fixtures/resources/${resource.id}/${scenarioName}.http`;
+    const parsedSrc = readHttpResponseFixture(project.slug, entry.responseFixture.path);
+
+    // If the response is JSON, templatize values based on request query keys.
+    let bodyBuf = parsedSrc.body;
+    const ct = (parsedSrc.headers['content-type'] ?? '').toLowerCase();
+    if (ct.includes('application/json') || ct.includes('+json')) {
+      try {
+        const json = JSON.parse(bodyBuf.toString('utf-8'));
+        for (const k of Object.keys(entry.requestQuery ?? {})) {
+          replaceAllKeys(json, k, `{{query.${k}}}`);
+        }
+        bodyBuf = Buffer.from(JSON.stringify(json), 'utf-8');
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    const written = writeHttpResponseFixture(project.slug, destRel, parsedSrc.statusCode, parsedSrc.headers, bodyBuf);
+
+    const parsed = readHttpResponseFixture(project.slug, written.relPath);
+
+    const already = resource.scenarios.find(s => s.name === scenarioName);
+    const updated = already
+      ? updateScenario(project.id, resource.id, scenarioName, {
+          statusCode: parsed.statusCode,
+          responseHeaders: parsed.headers,
+          body: {},
+          fixture: { path: destRel, format: 'http' },
+        })
+      : addScenario(project.id, resource.id, {
+          name: scenarioName,
+          statusCode: parsed.statusCode,
+          responseHeaders: parsed.headers,
+          headers: {},
+          body: {},
+          fixture: { path: destRel, format: 'http' },
+          delay: 0,
+        });
+
+    res.json({ ok: true, resourceId: resource.id, resource: updated });
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+// ============================================================================
+// Static Files Routes
+// ============================================================================
+
+/**
+ * GET /api/admin/projects/:id/static-files
+ * List all static files for the project.
+ */
+router.get('/projects/:id/static-files', (req: Request, res: Response) => {
+  try {
+    const project = getProject(req.params.id);
+    const files = listStaticFiles(project.slug);
+    res.json({ files });
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * POST /api/admin/projects/:id/static-files
+ * Upload a single static file.
+ * Content-Type: application/octet-stream
+ * Query param:  ?path=videos/10_min_hls/master.m3u8   (destination relative path)
+ */
+router.post('/projects/:id/static-files', (req: Request, res: Response) => {
+  try {
+    const project = getProject(req.params.id);
+
+    const relPath = typeof req.query.path === 'string' ? req.query.path.trim() : '';
+    if (!relPath) {
+      res.status(400).json({ error: 'Missing required query param: path' });
+      return;
+    }
+
+    // Collect raw body (already a Buffer from express.raw / express.json fallthrough).
+    // We register this as a raw body route below via a dedicated mini-router so the
+    // JSON middleware on the main router is bypassed.
+    const body = req.body;
+    const data: Buffer = Buffer.isBuffer(body)
+      ? body
+      : Buffer.isBuffer(body?.data)
+        ? body.data
+        : Buffer.from(body ?? '');
+
+    const entry = writeStaticFile(project.slug, relPath, data);
+    res.status(201).json({ ok: true, file: entry });
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * DELETE /api/admin/projects/:id/static-files
+ * Delete a single static file.
+ * Query param: ?path=videos/10_min_hls/master.m3u8
+ */
+router.delete('/projects/:id/static-files', (req: Request, res: Response) => {
+  try {
+    const project = getProject(req.params.id);
+    const relPath = typeof req.query.path === 'string' ? req.query.path.trim() : '';
+    if (!relPath) {
+      res.status(400).json({ error: 'Missing required query param: path' });
+      return;
+    }
+    deleteStaticFile(project.slug, relPath);
+    res.status(204).send();
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
   }
 });
 

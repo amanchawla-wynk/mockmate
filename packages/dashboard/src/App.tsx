@@ -1,53 +1,49 @@
-/**
- * Main application component
- */
-
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Layout from './components/Layout';
 import { ResourceList } from './components/ResourceList';
 import { ResourceEditor } from './components/ResourceEditor';
 import { ScenarioEditor } from './components/ScenarioEditor';
 import { ScenarioSwitcher } from './components/ScenarioSwitcher';
-import { DeviceSetup } from './components/DeviceSetup';
+import { BaseScenarioSwitcher } from './components/BaseScenarioSwitcher';
 import { useResources } from './hooks/useResources';
+import { useLogs } from './hooks/useLogs';
 import { serverApi } from './api/client';
 import { PassthroughSettings } from './components/PassthroughSettings';
+import { LogsView } from './components/LogsView';
+import { TrafficView } from './components/TrafficView';
+import { StaticFilesView } from './components/StaticFilesView';
 import type { ServerStatus, Resource, Project } from './api/types';
+import type { ViewType } from './components/ProjectList';
 
 function App() {
   const [status, setStatus] = useState<ServerStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<ViewType>('traffic');
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const data = await serverApi.status();
+      setStatus(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
 
   useEffect(() => {
     loadStatus();
-  }, []);
-
-  const loadStatus = async () => {
-    try {
-      setLoading(true);
-      const data = await serverApi.status();
-      setStatus(data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to connect to server');
-    } finally {
-      setLoading(false);
-    }
-  };
+    const id = window.setInterval(loadStatus, 1000);
+    return () => window.clearInterval(id);
+  }, [loadStatus]);
 
   return (
-    <Layout>
-      {(activeProjectId, deactivateProject, activeProject, refreshProjects) => (
+    <Layout activeView={activeView} onSelectView={setActiveView}>
+      {(activeProjectId, _deactivateProject, activeProject, refreshProjects) => (
         <AppContent
           activeProjectId={activeProjectId}
           activeProject={activeProject}
-          deactivateProject={deactivateProject}
           refreshProjects={refreshProjects}
           status={status}
-          loading={loading}
-          error={error}
           onRefreshStatus={loadStatus}
+          activeView={activeView}
         />
       )}
     </Layout>
@@ -57,29 +53,46 @@ function App() {
 interface AppContentProps {
   activeProjectId: string | undefined;
   activeProject: Project | undefined;
-  deactivateProject: () => Promise<void>;
   refreshProjects: () => Promise<void>;
   status: ServerStatus | null;
-  loading: boolean;
-  error: string | null;
   onRefreshStatus: () => Promise<void>;
+  activeView: ViewType;
 }
 
-function AppContent({ activeProjectId, activeProject, deactivateProject, refreshProjects, status, loading, error, onRefreshStatus }: AppContentProps) {
+function AppContent({ activeProjectId, activeProject, refreshProjects, status, onRefreshStatus, activeView }: AppContentProps) {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [editingResource, setEditingResource] = useState<Resource | null>(null);
 
   const {
     resources,
     loading: resourcesLoading,
     createResource,
+    updateResource,
     deleteResource,
     refresh: refreshResources,
   } = useResources(activeProjectId);
 
+  const logsEnabled = activeView === 'logs' || activeView === 'traffic';
+  const {
+    logs,
+    loading: logsLoading,
+    error: logsError,
+    paused: logsPaused,
+    setPaused: setLogsPaused,
+    refresh: refreshLogs,
+    clear: clearLogs,
+  } = useLogs({ enabled: logsEnabled, pollIntervalMs: 1000 });
+
+  // Keep server status in sync with active project changes
+  useEffect(() => {
+    onRefreshStatus();
+  }, [activeProjectId, onRefreshStatus]);
+
   // Clear selectedResource when activeProjectId changes or is cleared
   useEffect(() => {
     setSelectedResource(null);
+    setEditingResource(null);
   }, [activeProjectId]);
 
   // Update or clear selectedResource when resources change
@@ -87,130 +100,58 @@ function AppContent({ activeProjectId, activeProject, deactivateProject, refresh
     if (selectedResource && resources.length > 0) {
       const updated = resources.find(r => r.id === selectedResource.id);
       if (updated) {
-        // Resource still exists, update it with latest data
         setSelectedResource(updated);
       } else {
-        // Resource was deleted, clear selection
         setSelectedResource(null);
       }
     } else if (selectedResource && resources.length === 0) {
-      // No resources left, clear selection
       setSelectedResource(null);
     }
-  }, [resources]);
+  }, [resources, selectedResource]);
+
+  const viewTitles: Record<ViewType, string> = {
+    traffic: 'Traffic',
+    logs: 'Logs',
+    intercept: 'Proxy Intercept',
+    resources: 'Rules',
+    files: 'Static Files',
+  };
 
   return (
     <>
-      <div className="flex h-full gap-6">
-        {/* Resources Section */}
-        {activeProjectId ? (
-          <div className="w-96 bg-white rounded-lg shadow flex flex-col">
-            <ResourceList
-              resources={resources}
-              onSelectResource={setSelectedResource}
-              onNewResource={() => setIsEditorOpen(true)}
-              onDeleteResource={deleteResource}
-              loading={resourcesLoading}
-              selectedResourceId={selectedResource?.id}
-            />
+      <div className="flex flex-col h-full min-h-0 bg-white overflow-hidden">
+        {/* Top bar with tools/actions specific to the active view */}
+        <div className="h-12 border-b border-gray-200 bg-[#F3F3F3] flex items-center justify-between px-3 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-gray-800">
+              {activeProject?.name ? (
+                <>
+                  {activeProject.name}
+                  <span className="mx-2 text-gray-400">/</span>
+                </>
+              ) : null}
+              <span className="text-gray-600 font-normal">
+                {viewTitles[activeView]}
+              </span>
+            </h2>
           </div>
-        ) : null}
-
-        {/* Main Content */}
-        <div className="flex-1">
-          {!activeProjectId ? (
-            <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-
-              {/* Server Status Card */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Server Status</h3>
-
-                {loading && (
-                  <div className="text-gray-500">Loading...</div>
-                )}
-
-                {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <div className="flex items-center">
-                      <svg className="w-5 h-5 text-red-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                      </svg>
-                      <span className="text-red-700">{error}</span>
-                    </div>
-                    <p className="text-sm text-red-600 mt-2">
-                      Make sure the MockMate server is running on <code className="bg-red-100 px-1 rounded">http://localhost:3456</code>
-                    </p>
-                  </div>
-                )}
-
-                {status && (
-                  <div className="space-y-3">
-                    <div className="flex items-center">
-                      <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                      <span className="text-sm text-gray-600">Status:</span>
-                      <span className="ml-2 text-sm font-medium text-gray-900 capitalize">{status.status}</span>
-                    </div>
-
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                      <p className="text-sm text-yellow-700">No active project</p>
-                      <p className="text-xs text-yellow-600 mt-1">Create a project from the sidebar to get started</p>
-                    </div>
-
-                    <div className="text-xs text-gray-500">
-                      Last updated: {new Date(status.timestamp).toLocaleString()}
-                    </div>
-                  </div>
-                )}
+          
+          <div className="flex items-center gap-3">
+            {status?.activeProject && activeView !== 'resources' && (
+              <div className="flex items-center gap-2 text-xs text-gray-700 bg-white border border-gray-200 rounded px-2 py-1">
+                <span>
+                  Active: <span className="font-mono">{status.activeProject.activeScenario}</span>
+                </span>
+                <span className="text-gray-300">|</span>
+                <span>
+                  Base: <span className="font-mono">{status.activeProject.baseScenario ?? 'default'}</span>
+                </span>
               </div>
-
-              {/* Device Setup Card */}
-              <DeviceSetup httpPort={3456} httpsPort={3457} />
-
-              {/* Welcome Card */}
-              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-indigo-900 mb-2">Welcome to MockMate!</h3>
-                <p className="text-indigo-700 mb-4">
-                  MockMate is a local mock API server designed for mobile developers. Get started by creating a project and adding resources.
-                </p>
-                <div className="space-y-2 text-sm text-indigo-600">
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    <span>Create projects to organize your mock APIs</span>
-                  </div>
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    <span>Add resources with multiple scenarios (default, empty, error, etc.)</span>
-                  </div>
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    <span>Switch scenarios instantly without code changes</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <button
-                    onClick={deactivateProject}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
-                  >
-                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-                    </svg>
-                    <span>Back to Dashboard</span>
-                  </button>
-                  <h2 className="text-2xl font-bold text-gray-900">Resources</h2>
-                </div>
-                {status?.activeProject && (
+            )}
+            {status?.activeProject && activeView === 'resources' && activeProjectId && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-600">Active</span>
                   <ScenarioSwitcher
                     projectId={activeProjectId}
                     resources={resources}
@@ -220,58 +161,130 @@ function AppContent({ activeProjectId, activeProject, deactivateProject, refresh
                       await refreshResources();
                     }}
                   />
-                )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-600">Base</span>
+                  <BaseScenarioSwitcher
+                    projectId={activeProjectId}
+                    resources={resources}
+                    baseScenario={status.activeProject.baseScenario ?? 'default'}
+                    onSwitch={async () => {
+                      await onRefreshStatus();
+                      await refreshResources();
+                    }}
+                  />
+                </div>
               </div>
+            )}
+          </div>
+        </div>
 
-              {/* Passthrough Settings */}
-              {activeProject && (
+        {/* Content Area */}
+        <div className="flex-1 min-h-0 relative overflow-hidden">
+          {activeView === 'traffic' ? (
+            <TrafficView
+              logs={logs}
+              loading={logsLoading}
+              error={logsError}
+              paused={logsPaused}
+              onTogglePaused={setLogsPaused}
+              onClear={clearLogs}
+              onRefresh={refreshLogs}
+              projectId={activeProjectId ?? undefined}
+              activeScenario={status?.activeProject?.activeScenario}
+              onRuleCreated={async () => {
+                await refreshResources();
+              }}
+            />
+          ) : activeView === 'logs' ? (
+            <LogsView
+              logs={logs}
+              loading={logsLoading}
+              error={logsError}
+              paused={logsPaused}
+              onTogglePaused={setLogsPaused}
+              onClear={clearLogs}
+              onRefresh={refreshLogs}
+            />
+          ) : activeView === 'intercept' ? (
+            !activeProject ? (
+              <div className="flex-1 p-8 text-center text-gray-500 text-sm">
+                Select a domain from the workspace to configure proxy interception.
+              </div>
+            ) : (
+              <div className="p-6 max-w-4xl mx-auto overflow-y-auto h-full">
                 <PassthroughSettings
                   project={activeProject}
                   onUpdate={refreshProjects}
                 />
-              )}
-
-              {selectedResource ? (
-                <div className="bg-white rounded-lg shadow p-6">
-                  <ScenarioEditor
-                    projectId={activeProjectId}
-                    resource={selectedResource}
-                    onUpdate={refreshResources}
+              </div>
+            )
+          ) : activeView === 'files' ? (
+            !activeProject || !activeProjectId ? (
+              <div className="flex-1 p-8 text-center text-gray-500 text-sm">
+                Select a project from the workspace to manage its static files.
+              </div>
+            ) : (
+              <StaticFilesView
+                projectId={activeProjectId}
+                baseUrl={activeProject.baseUrl}
+              />
+            )
+          ) : activeView === 'resources' ? (
+            !activeProject || !activeProjectId ? (
+              <div className="flex-1 p-8 text-center text-gray-500 text-sm">
+                Select a domain from the workspace to manage its rules.
+              </div>
+            ) : (
+              <div className="flex h-full min-h-0">
+                <div className="w-80 border-r border-gray-200 bg-white flex flex-col">
+                  <ResourceList
+                    resources={resources}
+                    onSelectResource={setSelectedResource}
+                    onNewResource={() => setIsEditorOpen(true)}
+                    onEditResource={(r) => {
+                      setEditingResource(r);
+                      setIsEditorOpen(true);
+                    }}
+                    onDeleteResource={deleteResource}
+                    loading={resourcesLoading}
+                    selectedResourceId={selectedResource?.id}
                   />
                 </div>
-              ) : (
-                <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg p-12 text-center">
-                  <svg
-                    className="w-16 h-16 mx-auto text-gray-400 mb-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
-                  <p className="text-gray-600 mb-2">No resource selected</p>
-                  <p className="text-sm text-gray-500">
-                    Select a resource from the list or create a new one to get started
-                  </p>
+                <div className="flex-1 bg-gray-50 flex flex-col min-h-0 overflow-y-auto">
+                  {selectedResource ? (
+                    <div className="p-4">
+                      <ScenarioEditor
+                        projectId={activeProjectId}
+                        resource={selectedResource}
+                        onUpdate={refreshResources}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+                      Select a rule to configure scenarios
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )
+          ) : null}
         </div>
       </div>
 
-      {/* Resource Editor Modal */}
-      <ResourceEditor
-        isOpen={isEditorOpen}
-        onClose={() => setIsEditorOpen(false)}
-        onSubmit={createResource}
-        projectId={activeProjectId}
-      />
+      {activeProjectId && (
+        <ResourceEditor
+          isOpen={isEditorOpen}
+          onClose={() => {
+            setIsEditorOpen(false);
+            setEditingResource(null);
+          }}
+          onCreate={createResource}
+          onUpdate={updateResource}
+          projectId={activeProjectId}
+          resource={editingResource ?? undefined}
+        />
+      )}
     </>
   );
 }

@@ -348,7 +348,8 @@ describe('handleRequest', () => {
       'GET',
       '/api/posts',
       mockResources,
-      'default'
+      'default',
+      'base'
     );
     expect(response).toBeNull();
   });
@@ -358,7 +359,8 @@ describe('handleRequest', () => {
       'GET',
       '/api/users',
       mockResources,
-      'empty'
+      'empty',
+      'base'
     );
 
     expect(response).not.toBeNull();
@@ -372,6 +374,7 @@ describe('handleRequest', () => {
       '/api/users',
       mockResources,
       'empty',
+      'base',
       'slow'
     );
 
@@ -385,7 +388,8 @@ describe('handleRequest', () => {
       'GET',
       '/api/users',
       mockResources,
-      'nonexistent'
+      'nonexistent',
+      'base'
     );
 
     expect(response).not.toBeNull();
@@ -397,7 +401,8 @@ describe('handleRequest', () => {
       'GET',
       '/api/users/123',
       mockResources,
-      'default'
+      'default',
+      'base'
     );
 
     expect(response).not.toBeNull();
@@ -410,7 +415,8 @@ describe('handleRequest', () => {
       'GET',
       '/api/users/999',
       mockResources,
-      'error'
+      'error',
+      'base'
     );
 
     expect(response).not.toBeNull();
@@ -423,7 +429,8 @@ describe('handleRequest', () => {
       'GET',
       '/api/users',
       mockResources,
-      'default'
+      'default',
+      'base'
     );
 
     expect(response).not.toBeNull();
@@ -449,20 +456,54 @@ describe('Scenario Fallback Logic', () => {
     const resources = [resource];
 
     // No header, uses active scenario
-    const response1 = handleRequest('GET', '/api/test', resources, 'active');
+    const response1 = handleRequest('GET', '/api/test', resources, 'active', 'base');
     expect(response1?.body).toEqual({ scenario: 'active' });
 
     // Header specified, uses header scenario
-    const response2 = handleRequest('GET', '/api/test', resources, 'active', 'header');
+    const response2 = handleRequest('GET', '/api/test', resources, 'active', 'base', 'header');
     expect(response2?.body).toEqual({ scenario: 'header' });
 
     // Invalid active scenario, falls back to default
-    const response3 = handleRequest('GET', '/api/test', resources, 'invalid');
+    const response3 = handleRequest('GET', '/api/test', resources, 'invalid', 'base');
     expect(response3?.body).toEqual({ scenario: 'default' });
 
     // Invalid header scenario, falls back to default
-    const response4 = handleRequest('GET', '/api/test', resources, 'active', 'invalid');
+    const response4 = handleRequest('GET', '/api/test', resources, 'active', 'base', 'invalid');
     expect(response4?.body).toEqual({ scenario: 'default' });
+  });
+
+  it('should fall back from state suffix → base scenario name', () => {
+    const resource: Resource = {
+      id: 'res_1',
+      method: 'GET',
+      path: '/api/test',
+      scenarios: [
+        { name: 'default', statusCode: 200, body: { scenario: 'default' } },
+        { name: 'test001', statusCode: 200, body: { scenario: 'test001' } },
+      ],
+      createdAt: '2025-01-01T00:00:00Z',
+      updatedAt: '2025-01-01T00:00:00Z',
+    };
+
+    const response = handleRequest('GET', '/api/test', [resource], 'test001__content_added', 'base');
+    expect(response?.body).toEqual({ scenario: 'test001' });
+  });
+
+  it('should fall back from active → baseScenario when resource lacks active scenario', () => {
+    const resource: Resource = {
+      id: 'res_1',
+      method: 'GET',
+      path: '/api/test',
+      scenarios: [
+        { name: 'default', statusCode: 200, body: { scenario: 'default' } },
+        { name: 'auth_subscribed', statusCode: 200, body: { scenario: 'auth_subscribed' } },
+      ],
+      createdAt: '2025-01-01T00:00:00Z',
+      updatedAt: '2025-01-01T00:00:00Z',
+    };
+
+    const response = handleRequest('GET', '/api/test', [resource], 'test_downloads', 'auth_subscribed');
+    expect(response?.body).toEqual({ scenario: 'auth_subscribed' });
   });
 });
 
@@ -495,24 +536,24 @@ describe('Method Matching', () => {
   ];
 
   it('should match GET request', () => {
-    const response = handleRequest('GET', '/api/users', resources, 'default');
+    const response = handleRequest('GET', '/api/users', resources, 'default', 'base');
     expect(response?.body.method).toBe('GET');
     expect(response?.statusCode).toBe(200);
   });
 
   it('should match POST request', () => {
-    const response = handleRequest('POST', '/api/users', resources, 'default');
+    const response = handleRequest('POST', '/api/users', resources, 'default', 'base');
     expect(response?.body.method).toBe('POST');
     expect(response?.statusCode).toBe(201);
   });
 
   it('should match PUT request with parameters', () => {
-    const response = handleRequest('PUT', '/api/users/123', resources, 'default');
+    const response = handleRequest('PUT', '/api/users/123', resources, 'default', 'base');
     expect(response?.body.method).toBe('PUT');
   });
 
   it('should not match unsupported method', () => {
-    const response = handleRequest('DELETE', '/api/users', resources, 'default');
+    const response = handleRequest('DELETE', '/api/users', resources, 'default', 'base');
     expect(response).toBeNull();
   });
 });

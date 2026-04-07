@@ -18,6 +18,7 @@ import type {
   ImportPostmanRequest,
   ImportResponse,
   ImportProjectResponse,
+  StaticFileEntry,
 } from './types';
 
 const API_BASE = '/api/admin';
@@ -163,6 +164,18 @@ export const serverApi = {
   clearLogs: () => fetchJson<void>(`${API_BASE}/logs`, { method: 'DELETE' }),
 };
 
+// Traffic helpers
+export const trafficApi = {
+  createRuleFromLog: (projectId: string, logId: string, scenarioName?: string) =>
+    fetchJson<{ ok: boolean; resourceId: string }>(
+      `${API_BASE}/projects/${projectId}/logs/${logId}/create-rule`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ scenarioName }),
+      }
+    ),
+};
+
 // Import
 export const importApi = {
   importCurl: (projectId: string, data: ImportCurlRequest) =>
@@ -182,6 +195,33 @@ export const importApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+};
+
+// Static Files
+export const staticFilesApi = {
+  list: (projectId: string) =>
+    fetchJson<{ files: StaticFileEntry[] }>(`${API_BASE}/projects/${projectId}/static-files`),
+
+  upload: (projectId: string, filePath: string, file: File) => {
+    const url = `${API_BASE}/projects/${projectId}/static-files?path=${encodeURIComponent(filePath)}`;
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    }).then(async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+        throw new ApiError(res.status, err.error || 'Upload failed');
+      }
+      return res.json() as Promise<{ ok: boolean; file: StaticFileEntry }>;
+    });
+  },
+
+  delete: (projectId: string, filePath: string) =>
+    fetchJson<void>(
+      `${API_BASE}/projects/${projectId}/static-files?path=${encodeURIComponent(filePath)}`,
+      { method: 'DELETE' },
+    ),
 };
 
 export { ApiError };

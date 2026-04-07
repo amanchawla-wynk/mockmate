@@ -19,6 +19,7 @@ export function ProjectModal({ isOpen, onClose, onSubmit }: ProjectModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  const [interceptHosts, setInterceptHosts] = useState('');
   const [postmanJson, setPostmanJson] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +34,7 @@ export function ProjectModal({ isOpen, onClose, onSubmit }: ProjectModalProps) {
       setName('');
       setDescription('');
       setBaseUrl('');
+      setInterceptHosts('');
       setPostmanJson('');
       setError(null);
       setIsSubmitting(false);
@@ -101,6 +103,10 @@ export function ProjectModal({ isOpen, onClose, onSubmit }: ProjectModalProps) {
           name: name.trim(),
           description: description.trim() || undefined,
           baseUrl: baseUrl.trim() || undefined,
+          interceptHosts: interceptHosts
+            .split(/\r?\n|,/g)
+            .map(s => s.trim())
+            .filter(Boolean),
         });
         onClose();
       } catch (err) {
@@ -121,16 +127,18 @@ export function ProjectModal({ isOpen, onClose, onSubmit }: ProjectModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isSubmitting) {
-          onClose();
-        }
+      className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-50"
+      onClick={() => {
+        if (!isSubmitting) onClose();
       }}
       onKeyDown={handleKeyDown}
     >
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4">
-        <div className="px-6 py-4 border-b border-gray-200">
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div
+          className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-auto max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+        <div className="px-6 py-4 border-b border-gray-200 flex-shrink-0">
           <h2 className="text-xl font-semibold text-gray-900">Create New Project</h2>
 
           {/* Mode Toggle */}
@@ -160,8 +168,8 @@ export function ProjectModal({ isOpen, onClose, onSubmit }: ProjectModalProps) {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="px-6 py-4 space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
+          <div className="px-6 py-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
                 {error}
@@ -218,7 +226,26 @@ export function ProjectModal({ isOpen, onClose, onSubmit }: ProjectModalProps) {
                     maxLength={200}
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    Real API server URL for passthrough mode (e.g., https://api.example.com)
+                    Optional. Used for direct passthrough mode (not required for proxy interception).
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="project-interceptHosts" className="block text-sm font-medium text-gray-700 mb-1">
+                    Intercept Hosts (proxy allowlist)
+                  </label>
+                  <textarea
+                    id="project-interceptHosts"
+                    value={interceptHosts}
+                    onChange={(e) => setInterceptHosts(e.target.value)}
+                    disabled={isSubmitting}
+                    className="w-full px-3 py-2 font-mono text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed resize-vertical"
+                    placeholder={"package-preprod.wynk.in\napimaster-preprod.wynk.in\n*.wynk.in"}
+                    rows={4}
+                    maxLength={2000}
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    One per line (or comma-separated). Supports wildcards like <code className="bg-gray-100 px-1 rounded">*.wynk.in</code> or <code className="bg-gray-100 px-1 rounded">*</code>.
                   </p>
                 </div>
               </>
@@ -256,7 +283,7 @@ export function ProjectModal({ isOpen, onClose, onSubmit }: ProjectModalProps) {
             )}
           </div>
 
-          <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+          <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 flex-shrink-0">
             <button
               type="button"
               onClick={onClose}
@@ -278,6 +305,7 @@ export function ProjectModal({ isOpen, onClose, onSubmit }: ProjectModalProps) {
           </div>
         </form>
       </div>
+    </div>
     </div>
   );
 }

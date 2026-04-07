@@ -2,14 +2,16 @@
  * ResourceEditor component - modal for creating/editing resources
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { importApi } from '../api/client';
-import type { Resource, CreateResourceRequest, HttpMethod } from '../api/types';
+import type { Resource, CreateResourceRequest, UpdateResourceRequest, HttpMethod } from '../api/types';
+import { KeyValueTable, type KeyValueItem } from './KeyValueTable';
 
 interface ResourceEditorProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: CreateResourceRequest) => Promise<void>;
+  onCreate: (data: CreateResourceRequest) => Promise<any>;
+  onUpdate: (id: string, data: UpdateResourceRequest) => Promise<any>;
   projectId?: string; // Required for imports
   resource?: Resource; // If provided, we're editing; otherwise creating
 }
@@ -18,10 +20,13 @@ const HTTP_METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
 type CreateMode = 'manual' | 'curl';
 
-export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource }: ResourceEditorProps) {
+export function ResourceEditor({ isOpen, onClose, onCreate, onUpdate, projectId, resource }: ResourceEditorProps) {
   const [mode, setMode] = useState<CreateMode>('manual');
   const [method, setMethod] = useState<HttpMethod>('GET');
   const [path, setPath] = useState('');
+  const [host, setHost] = useState('');
+  const [matchQuery, setMatchQuery] = useState<KeyValueItem[]>([]);
+  const [matchHeaders, setMatchHeaders] = useState<KeyValueItem[]>([]);
   const [curlCommand, setCurlCommand] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,12 +46,18 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
         // Editing existing resource
         setMethod(resource.method);
         setPath(resource.path);
+        setHost(resource.host || '');
+        setMatchQuery(Object.entries(resource.match?.query || {}).map(([key, value]) => ({ key, value })));
+        setMatchHeaders(Object.entries(resource.match?.headers || {}).map(([key, value]) => ({ key, value })));
       } else {
         // Creating new resource
         console.log('[ResourceEditor] Initializing new resource, setting mode to manual');
         setMode('manual');
         setMethod('GET');
         setPath('');
+        setHost('');
+        setMatchQuery([]);
+        setMatchHeaders([]);
         setCurlCommand('');
       }
       setError(null);
@@ -62,6 +73,26 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
       }, 100);
     }
   }, [isOpen, resource]); // Removed 'mode' from dependencies to prevent reset loop
+
+  const normalizedMatch = useMemo(() => {
+    const query: Record<string, string> = {};
+    for (const item of matchQuery) {
+      const k = item.key.trim();
+      const v = item.value.trim();
+      if (k && v) query[k] = v;
+    }
+    const headers: Record<string, string> = {};
+    for (const item of matchHeaders) {
+      const k = item.key.trim().toLowerCase();
+      const v = item.value.trim();
+      if (k && v) headers[k] = v;
+    }
+
+    const out: { query?: Record<string, string>; headers?: Record<string, string> } = {};
+    if (Object.keys(query).length > 0) out.query = query;
+    if (Object.keys(headers).length > 0) out.headers = headers;
+    return Object.keys(out).length > 0 ? out : undefined;
+  }, [matchHeaders, matchQuery]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,7 +134,7 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
         setIsSubmitting(false);
       }
     } else {
-      // Manual resource creation
+      // Manual rule creation/update
       // Validation
       if (!path.trim()) {
         setError('Path is required');
@@ -117,10 +148,21 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
 
       try {
         setIsSubmitting(true);
-        await onSubmit({
-          method,
-          path: path.trim(),
-        });
+        if (resource) {
+          await onUpdate(resource.id, {
+            method,
+            path: path.trim(),
+            host: host.trim() || undefined,
+            match: normalizedMatch,
+          });
+        } else {
+          await onCreate({
+            method,
+            path: path.trim(),
+            host: host.trim() || undefined,
+            match: normalizedMatch,
+          });
+        }
         onClose();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to save resource');
@@ -142,18 +184,20 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isSubmitting) {
-          onClose();
-        }
+      className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-50"
+      onClick={() => {
+        if (!isSubmitting) onClose();
       }}
       onKeyDown={handleKeyDown}
     >
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4">
-        <div className="px-6 py-4 border-b border-gray-200">
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div
+          className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-auto max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+        <div className="px-6 py-4 border-b border-gray-200 flex-shrink-0">
           <h2 className="text-xl font-semibold text-gray-900">
-            {isEditing ? 'Edit Resource' : 'Create New Resource'}
+            {isEditing ? 'Edit Rule' : 'Create New Rule'}
           </h2>
 
           {/* Mode Toggle - only show when creating new resources */}
@@ -191,8 +235,8 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
           )}
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="px-6 py-4 space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
+          <div className="px-6 py-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
                 {error}
@@ -202,6 +246,25 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
             {mode === 'manual' || isEditing ? (
               <>
                 <div>
+                  <label htmlFor="resource-host" className="block text-sm font-medium text-gray-700 mb-1">
+                    Host (optional)
+                  </label>
+                  <input
+                    id="resource-host"
+                    type="text"
+                    value={host}
+                    onChange={(e) => setHost(e.target.value)}
+                    disabled={isSubmitting}
+                    className="w-full px-3 py-2 font-mono text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    placeholder="package-preprod.wynk.in"
+                    maxLength={200}
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    If set, this rule only matches requests to that hostname.
+                  </p>
+                </div>
+
+                <div>
                   <label htmlFor="resource-method" className="block text-sm font-medium text-gray-700 mb-1">
                     HTTP Method <span className="text-red-500">*</span>
                   </label>
@@ -209,7 +272,7 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
                     id="resource-method"
                     value={method}
                     onChange={(e) => setMethod(e.target.value as HttpMethod)}
-                    disabled={isSubmitting || isEditing}
+                    disabled={isSubmitting}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
                     {HTTP_METHODS.map((m) => (
@@ -218,11 +281,7 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
                       </option>
                     ))}
                   </select>
-                  {isEditing && (
-                    <p className="mt-1 text-xs text-gray-500">
-                      Method cannot be changed after creation
-                    </p>
-                  )}
+                  <p className="mt-1 text-xs text-gray-500">Changing method/path affects how requests match this rule.</p>
                 </div>
 
                 <div>
@@ -235,20 +294,14 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
                     type="text"
                     value={path}
                     onChange={(e) => setPath(e.target.value)}
-                    disabled={isSubmitting || isEditing}
+                    disabled={isSubmitting}
                     className="w-full px-3 py-2 font-mono text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
                     placeholder="/api/users/:id"
                     maxLength={200}
                   />
-                  {isEditing ? (
-                    <p className="mt-1 text-xs text-gray-500">
-                      Path cannot be changed after creation
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-xs text-gray-500">
-                      Use :paramName for path parameters (e.g., /users/:id)
-                    </p>
-                  )}
+                  <p className="mt-1 text-xs text-gray-500">
+                    Use :paramName for path parameters (e.g., /users/:id)
+                  </p>
                 </div>
 
                 {!isEditing && (
@@ -261,6 +314,32 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
                     </ul>
                   </div>
                 )}
+
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="text-sm font-medium text-gray-900 mb-2">Request Match (optional)</div>
+                  <p className="text-xs text-gray-600 mb-3">
+                    Use this to create multiple variants for the same method + path (e.g. different query params).
+                    Supports wildcard patterns like <code className="bg-white px-1 rounded border">homepage*</code>.
+                  </p>
+
+                  <div className="space-y-4">
+                    <KeyValueTable
+                      title="Query Params"
+                      items={matchQuery}
+                      onChange={setMatchQuery}
+                      keyPlaceholder="pageId"
+                      valuePlaceholder="homepage2"
+                    />
+
+                    <KeyValueTable
+                      title="Headers"
+                      items={matchHeaders}
+                      onChange={setMatchHeaders}
+                      keyPlaceholder="x-client"
+                      valuePlaceholder="ios"
+                    />
+                  </div>
+                </div>
               </>
             ) : (
               <>
@@ -296,7 +375,7 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
             )}
           </div>
 
-          <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+          <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 flex-shrink-0">
             <button
               type="button"
               onClick={onClose}
@@ -308,16 +387,17 @@ export function ResourceEditor({ isOpen, onClose, onSubmit, projectId, resource 
             <button
               type="submit"
               disabled={isSubmitting || (mode === 'manual' || isEditing ? !path.trim() : !curlCommand.trim())}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-md hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isSubmitting
                 ? (mode === 'curl' ? 'Importing...' : isEditing ? 'Saving...' : 'Creating...')
-                : (mode === 'curl' ? 'Import from cURL' : isEditing ? 'Save Changes' : 'Create Resource')
+                : (mode === 'curl' ? 'Import from cURL' : isEditing ? 'Save Changes' : 'Create Rule')
               }
             </button>
           </div>
         </form>
       </div>
+    </div>
     </div>
   );
 }

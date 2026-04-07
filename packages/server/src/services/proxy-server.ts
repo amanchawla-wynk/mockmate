@@ -21,6 +21,8 @@ import * as tls from 'tls';
 import { CertCache } from './cert-cache';
 import { resolveProxyRequest, type ProxyIncomingRequest } from './proxy-handler';
 import { getActiveProject } from './projects';
+import { isHostIntercepted } from './intercept';
+import { getLocalIPAddresses } from './network';
 
 export interface ProxyServerOptions {
   port: number;
@@ -50,11 +52,13 @@ function parseHttpRequest(data: Buffer): ProxyIncomingRequest | null {
 
   const method = parts[0];
   let rawPath = parts[1];
+  let hostFromRequestLine: string | undefined;
 
   // For proxy requests the path may be a full URL — extract just the path
   if (rawPath.startsWith('http://') || rawPath.startsWith('https://')) {
     try {
       const url = new URL(rawPath);
+      hostFromRequestLine = url.host;
       rawPath = url.pathname + url.search;
     } catch {
       // keep as-is
@@ -69,6 +73,11 @@ function parseHttpRequest(data: Buffer): ProxyIncomingRequest | null {
       const value = lines[i].slice(colonIndex + 1).trim();
       headers[key] = value;
     }
+  }
+
+  // Some clients may omit Host when using absolute-form request targets.
+  if (!headers['host'] && hostFromRequestLine) {
+    headers['host'] = hostFromRequestLine;
   }
 
   return {
@@ -113,12 +122,150 @@ function httpStatusText(code: number): string {
     401: 'Unauthorized',
     403: 'Forbidden',
     404: 'Not Found',
+    408: 'Request Timeout',
     500: 'Internal Server Error',
     502: 'Bad Gateway',
     503: 'Service Unavailable',
     504: 'Gateway Timeout',
   };
   return map[code] || 'Unknown';
+}
+
+function serializeJson(statusCode: number, payload: any): Buffer {
+  return serializeHttpResponse(
+    statusCode,
+    {
+      'content-type': 'application/json',
+      connection: 'close',
+    },
+    Buffer.from(JSON.stringify(payload)),
+  );
+}
+
+function parseHostHeader(hostHeader: string): { hostname: string; port?: number } | null {
+  const raw = (hostHeader ?? '').trim();
+  if (!raw) return null;
+
+  // IPv6: "[::1]:8888"
+  if (raw.startsWith('[')) {
+    const end = raw.indexOf(']');
+    if (end === -1) return null;
+    const hostname = raw.slice(1, end);
+    const rest = raw.slice(end + 1);
+    if (rest.startsWith(':')) {
+      const p = rest.slice(1);
+      const port = Number.parseInt(p, 10);
+      if (Number.isFinite(port)) return { hostname, port };
+    }
+    return { hostname };
+  }
+
+  // IPv4/hostname: "example.com:80" (split on last colon)
+  const idx = raw.lastIndexOf(':');
+  if (idx > 0 && idx < raw.length - 1) {
+    const maybePort = raw.slice(idx + 1);
+    if (/^\d+$/.test(maybePort)) {
+      const port = Number.parseInt(maybePort, 10);
+      return { hostname: raw.slice(0, idx), port };
+    }
+  }
+
+  return { hostname: raw };
+}
+
+function isLocalHost(hostname: string): boolean {
+  const h = (hostname ?? '').trim().toLowerCase();
+  if (!h) return false;
+  if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true;
+  const ips = getLocalIPAddresses().map(ip => ip.toLowerCase());
+  return ips.includes(h);
+}
+
+const EXCLUDED_PROXY_REQUEST_HEADERS = new Set([
+  'host',
+  'connection',
+  'proxy-connection',
+  'keep-alive',
+  'transfer-encoding',
+  'upgrade',
+  'content-length',
+]);
+
+const PLAIN_HTTP_FORWARD_TIMEOUT_MS = 30_000;
+
+function extractErrnoCode(err: unknown): string | undefined {
+  const anyErr = err as any;
+  const code = anyErr?.code ?? anyErr?.cause?.code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function extractErrMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  try {
+    return String(err);
+  } catch {
+    return 'Unknown error';
+  }
+}
+
+async function readFullHttpRequest(
+  clientSocket: net.Socket,
+  initial: Buffer,
+): Promise<Buffer | null> {
+  let buffer = initial;
+
+  const headerEnd = () => buffer.indexOf('\r\n\r\n');
+  const getTotalExpected = (): number | null => {
+    const end = headerEnd();
+    if (end === -1) return null;
+    const headerStr = buffer.slice(0, end).toString('utf-8');
+    const m = headerStr.match(/content-length:\s*(\d+)/i);
+    const contentLength = m ? Number.parseInt(m[1], 10) : 0;
+    return end + 4 + (Number.isFinite(contentLength) ? contentLength : 0);
+  };
+
+  const expected0 = getTotalExpected();
+  if (expected0 !== null && buffer.length >= expected0) {
+    return buffer.slice(0, expected0);
+  }
+
+  return await new Promise<Buffer | null>((resolve) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve(null);
+    }, 10_000);
+
+    function onData(chunk: Buffer) {
+      buffer = Buffer.concat([buffer, chunk]);
+      const expected = getTotalExpected();
+      if (expected !== null && buffer.length >= expected) {
+        const out = buffer.slice(0, expected);
+        cleanup();
+        resolve(out);
+      }
+    }
+
+    function onEnd() {
+      cleanup();
+      resolve(null);
+    }
+
+    function onError() {
+      cleanup();
+      resolve(null);
+    }
+
+    function cleanup() {
+      clearTimeout(timeout);
+      clientSocket.off('data', onData);
+      clientSocket.off('end', onEnd);
+      clientSocket.off('error', onError);
+    }
+
+    clientSocket.on('data', onData);
+    clientSocket.once('end', onEnd);
+    clientSocket.once('error', onError);
+  });
 }
 
 // ─── Domain matching ─────────────────────────────────────────────────────────
@@ -128,14 +275,8 @@ function httpStatusText(code: number): string {
  */
 function shouldIntercept(hostname: string): boolean {
   const project = getActiveProject();
-  if (!project || !project.baseUrl) return false;
-
-  try {
-    const projectHost = new URL(project.baseUrl).hostname;
-    return projectHost === hostname;
-  } catch {
-    return false;
-  }
+  if (!project) return false;
+  return isHostIntercepted(project, hostname);
 }
 
 // ─── Proxy server ────────────────────────────────────────────────────────────
@@ -168,7 +309,7 @@ export async function createProxyServer(options: ProxyServerOptions): Promise<{
       if (firstLine.startsWith('CONNECT ')) {
         handleConnect(clientSocket, firstLine, firstChunk, certCache);
       } else {
-        handleHttpProxy(clientSocket, firstChunk);
+        handleHttpProxy(clientSocket, firstChunk, options.port);
       }
     });
   });
@@ -228,80 +369,126 @@ function handleConnect(
   // Generate a TLS cert for this domain
   const certData = certCache.getCert(hostname);
 
-  // Create a TLS server socket over the existing client connection
+  // Create a TLS server socket over the existing client connection.
+  // - ALPNProtocols: advertise only HTTP/1.1 so iOS/Android apps don't try h2
+  //   (our parser only speaks HTTP/1.1).
   const tlsSocket = new tls.TLSSocket(clientSocket, {
     isServer: true,
     key: certData.privateKey,
     cert: certData.cert,
+    ALPNProtocols: ['http/1.1'],
   });
 
   tlsSocket.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
+    const code = err.code ?? (err as any).cause?.code;
+    // ECONNRESET during TLS almost always means the client aborted the
+    // handshake — most commonly because the CA certificate is not trusted.
+    if (code === 'ECONNRESET') {
+      console.warn(
+        `[Proxy] TLS handshake aborted by client for ${hostname} — ` +
+        `device may not trust the MockMate CA. ` +
+        `Visit http://<server-ip>:3456/setup to install the certificate.`,
+      );
       tlsSocket.destroy();
       return;
     }
-    console.error(`[Proxy] TLS error (${hostname}):`, err.message);
+    if (code === 'EPIPE') {
+      tlsSocket.destroy();
+      return;
+    }
+    console.error(`[Proxy] TLS error (${hostname}): [${code ?? 'unknown'}] ${err.message}`);
     tlsSocket.destroy();
   });
 
-  // Buffer for accumulating data
+  // Log when TLS handshake succeeds so we can distinguish "cert not trusted"
+  // from "request never came".  ('secureConnect' fires on TLSSocket instances;
+  // 'secureConnection' is only on tls.Server.)
+  tlsSocket.once('secureConnect', () => {
+    const proto = tlsSocket.alpnProtocol || 'none';
+    console.log(`[Proxy] TLS handshake OK: ${hostname} (ALPN: ${proto})`);
+  });
+
+  // ── Serialised request processing ───────────────────────────────────────────
+  // The data handler MUST NOT be async directly: if it awaits (e.g. during
+  // upstream forwarding) Node fires more data events before the handler
+  // returns, causing concurrent mutations of the shared buffer and
+  // out-of-order / missing responses.
+  //
+  // Fix: accumulate raw bytes synchronously, then process requests one at a
+  // time through a promise chain (processingChain) that never runs two
+  // requests concurrently.
+
   let buffer = Buffer.alloc(0);
+  // Each link in the chain is a fully-serialised drain of `buffer`.
+  let processingChain: Promise<void> = Promise.resolve();
 
-  tlsSocket.on('data', async (chunk: Buffer) => {
-    buffer = Buffer.concat([buffer, chunk]);
+  /**
+   * Process as many complete HTTP/1.1 requests as are currently buffered,
+   * writing one response per request in order before moving to the next.
+   */
+  async function drainBuffer(): Promise<void> {
+    while (true) {
+      // ── Find end of HTTP headers ───────────────────────────────────────
+      const headerEnd = buffer.indexOf('\r\n\r\n');
+      if (headerEnd === -1) return; // Headers not fully received yet
 
-    // Try to parse a complete HTTP request
-    const headerEnd = buffer.indexOf('\r\n\r\n');
-    if (headerEnd === -1) return; // Need more data
+      // ── Determine full request length ──────────────────────────────────
+      const headerStr = buffer.slice(0, headerEnd).toString('utf-8');
+      const clMatch = headerStr.match(/content-length:\s*(\d+)/i);
+      const contentLength = clMatch ? parseInt(clMatch[1], 10) : 0;
+      const totalExpected = headerEnd + 4 + (Number.isFinite(contentLength) ? contentLength : 0);
 
-    // Check Content-Length to know if we have the full body
-    const headerStr = buffer.slice(0, headerEnd).toString('utf-8');
-    const contentLengthMatch = headerStr.match(/content-length:\s*(\d+)/i);
-    const contentLength = contentLengthMatch ? parseInt(contentLengthMatch[1], 10) : 0;
-    const totalExpected = headerEnd + 4 + contentLength;
+      if (buffer.length < totalExpected) return; // Body not fully received yet
 
-    if (buffer.length < totalExpected) return; // Need more body data
+      // ── Extract exactly one request and advance the buffer ─────────────
+      const requestData = buffer.slice(0, totalExpected);
+      buffer = buffer.slice(totalExpected);
 
-    // Extract this request's data
-    const requestData = buffer.slice(0, totalExpected);
-    buffer = buffer.slice(totalExpected); // Keep any remaining data for next request
-
-    const parsed = parseHttpRequest(requestData);
-    if (!parsed) {
-      const errResponse = serializeHttpResponse(400, { 'content-type': 'text/plain' }, Buffer.from('Bad Request'));
-      tlsSocket.write(errResponse);
-      return;
-    }
-
-    // Set host header if not already set
-    if (!parsed.headers['host']) {
-      parsed.headers['host'] = hostname;
-    }
-
-    try {
-      const result = await resolveProxyRequest(parsed, hostname);
-
-      if (result) {
-        const raw = serializeHttpResponse(result.statusCode, result.headers, result.body);
-        tlsSocket.write(raw);
-      } else {
-        // Shouldn't happen (we checked shouldIntercept), but forward just in case
-        const fallback = serializeHttpResponse(
-          502,
-          { 'content-type': 'application/json' },
-          Buffer.from(JSON.stringify({ error: 'No active project for this domain' })),
-        );
-        tlsSocket.write(fallback);
+      // ── Parse ──────────────────────────────────────────────────────────
+      const parsed = parseHttpRequest(requestData);
+      if (!parsed) {
+        console.warn(`[Proxy] Failed to parse HTTP request from ${hostname} — sending 400`);
+        tlsSocket.write(serializeHttpResponse(
+          400, { 'content-type': 'application/json' },
+          Buffer.from(JSON.stringify({ error: 'Bad Request', message: 'Could not parse HTTP request' })),
+        ));
+        continue;
       }
-    } catch (err) {
-      console.error(`[Proxy] Error handling request for ${hostname}${parsed.path}:`, err);
-      const errResponse = serializeHttpResponse(
-        500,
-        { 'content-type': 'application/json' },
-        Buffer.from(JSON.stringify({ error: 'Internal proxy error' })),
-      );
-      tlsSocket.write(errResponse);
+
+      if (!parsed.headers['host']) {
+        parsed.headers['host'] = hostname;
+      }
+
+      // ── Resolve (mock or forward) ──────────────────────────────────────
+      try {
+        const result = await resolveProxyRequest(parsed, hostname, { scheme: 'https', port });
+
+        if (result) {
+          tlsSocket.write(serializeHttpResponse(result.statusCode, result.headers, result.body));
+        } else {
+          // Shouldn't happen (we checked shouldIntercept above), but guard anyway.
+          console.warn(`[Proxy] resolveProxyRequest returned null for ${hostname}${parsed.path}`);
+          tlsSocket.write(serializeHttpResponse(
+            502, { 'content-type': 'application/json' },
+            Buffer.from(JSON.stringify({ error: 'No active project matched this host' })),
+          ));
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[Proxy] Error handling ${parsed.method} ${hostname}${parsed.path}: ${msg}`);
+        tlsSocket.write(serializeHttpResponse(
+          500, { 'content-type': 'application/json' },
+          Buffer.from(JSON.stringify({ error: 'Internal proxy error', message: msg })),
+        ));
+      }
     }
+  }
+
+  // Synchronously append incoming bytes, then schedule a serialised drain.
+  tlsSocket.on('data', (chunk: Buffer) => {
+    buffer = Buffer.concat([buffer, chunk]);
+    // Chain each drain so they execute sequentially, never concurrently.
+    processingChain = processingChain.then(() => drainBuffer()).catch(() => {});
   });
 
   tlsSocket.on('end', () => {
@@ -345,24 +532,84 @@ function blindTunnel(
 async function handleHttpProxy(
   clientSocket: net.Socket,
   rawChunk: Buffer,
+  proxyPort: number,
 ): Promise<void> {
-  const parsed = parseHttpRequest(rawChunk);
+  const full = await readFullHttpRequest(clientSocket, rawChunk);
+  if (!full) {
+    clientSocket.end(serializeJson(408, {
+      error: 'Request Timeout',
+      message: 'Timed out while reading the HTTP request through the proxy',
+    }));
+    return;
+  }
+
+  const parsed = parseHttpRequest(full);
   if (!parsed) {
-    clientSocket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    clientSocket.end(serializeJson(400, { error: 'Bad Request' }));
     return;
   }
 
   const host = parsed.headers['host'];
   if (!host) {
-    clientSocket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    clientSocket.end(serializeJson(400, { error: 'Bad Request', message: 'Missing Host header' }));
     return;
   }
 
-  // Extract just the hostname (strip port if present)
-  const hostname = host.split(':')[0];
+  const hostInfo = parseHostHeader(host);
+  if (!hostInfo) {
+    clientSocket.end(serializeJson(400, { error: 'Bad Request', message: 'Invalid Host header' }));
+    return;
+  }
+
+  const hostname = hostInfo.hostname;
+  const port = hostInfo.port ?? 80;
+
+  // ── MockMate control API bypass ───────────────────────────────────────────
+  // The iOS Test Runner (XCTRunner) can't make direct connections to local IPs
+  // (blocked by iOS Local Network privacy). Instead, tests use the fake hostname
+  // "mockmate.test" which routes through the system proxy (this server on :8888)
+  // to avoid the restriction. We intercept it here and forward to our own HTTP
+  // server at localhost:3456.
+  if (hostname === 'mockmate.test') {
+    const httpApiPort = proxyPort > 1000 ? 3456 : 3456; // always 3456 for now
+    const internalUrl = `http://127.0.0.1:${httpApiPort}${parsed.path}`;
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 8_000);
+      const resp = await fetch(internalUrl, {
+        method: parsed.method,
+        headers: { 'content-type': parsed.headers['content-type'] ?? 'application/json' },
+        body: parsed.body,
+        signal: ctrl.signal,
+      });
+      clearTimeout(t);
+      const body = Buffer.from(await resp.arrayBuffer());
+      const hdrs: Record<string, string> = {};
+      resp.headers.forEach((v, k) => { hdrs[k] = v; });
+      clientSocket.end(serializeHttpResponse(resp.status, hdrs, body));
+    } catch (err) {
+      clientSocket.end(serializeJson(502, { error: 'MockMate internal routing error', message: String(err) }));
+    }
+    return;
+  }
+
+  // Guard against accidental loops (calling the proxy port directly).
+  if (port === proxyPort && isLocalHost(hostname)) {
+    clientSocket.end(serializeJson(400, {
+      error: 'Bad Request',
+      message: 'This port is the MockMate HTTP proxy. Call the API server on :3456 (HTTP) or :3457 (HTTPS) instead.',
+      hint: {
+        correctEndpoints: [
+          'http://<host>:3456/setMockServerflags',
+          'https://<host>:3457/setMockServerflags',
+        ],
+      },
+    }));
+    return;
+  }
 
   try {
-    const result = await resolveProxyRequest(parsed, hostname);
+    const result = await resolveProxyRequest(parsed, hostname, { scheme: 'http', port });
 
     if (result) {
       const raw = serializeHttpResponse(result.statusCode, result.headers, result.body);
@@ -370,12 +617,28 @@ async function handleHttpProxy(
     } else {
       // Not our domain — forward as plain HTTP proxy
       const targetUrl = `http://${host}${parsed.path}`;
-      const response = await fetch(targetUrl, {
-        method: parsed.method,
-        headers: parsed.headers,
-        body: parsed.body,
-        redirect: 'manual',
-      });
+
+      const forwardHeaders: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed.headers)) {
+        if (!v) continue;
+        if (EXCLUDED_PROXY_REQUEST_HEADERS.has(k.toLowerCase())) continue;
+        forwardHeaders[k] = v;
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), PLAIN_HTTP_FORWARD_TIMEOUT_MS);
+      let response: Response;
+      try {
+        response = await fetch(targetUrl, {
+          method: parsed.method,
+          headers: forwardHeaders,
+          body: parsed.body,
+          redirect: 'manual',
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       const responseHeaders: Record<string, string> = {};
       response.headers.forEach((value, key) => {
@@ -387,7 +650,22 @@ async function handleHttpProxy(
       clientSocket.end(raw);
     }
   } catch (err) {
-    console.error('[Proxy] HTTP proxy error:', err);
-    clientSocket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+    const code = extractErrnoCode(err);
+    const msg = extractErrMessage(err);
+
+    // These are common when clients cancel requests or upstream closes early.
+    if (code === 'ECONNRESET' || code === 'EPIPE') {
+      console.warn(`[Proxy] HTTP proxy upstream closed connection (${code})`);
+    } else if (msg === 'fetch failed') {
+      console.warn('[Proxy] HTTP proxy fetch failed');
+    } else {
+      console.error('[Proxy] HTTP proxy error:', msg);
+    }
+
+    clientSocket.end(serializeJson(502, {
+      error: 'Bad Gateway',
+      message: 'Failed to proxy the upstream HTTP request',
+      code,
+    }));
   }
 }

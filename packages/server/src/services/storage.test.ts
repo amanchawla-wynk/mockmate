@@ -21,9 +21,8 @@ import {
 } from './storage';
 import type { GlobalConfig } from '../types';
 
-// Use actual ~/.mockmate for tests (will be created and cleaned up)
-// In a real production environment, we might use a different approach
-// but for now this tests the actual functionality
+// Storage can be overridden via MOCKMATE_DATA_DIR.
+// Tests run with a per-worker temp directory (see vitest.setup.ts).
 
 let testProjectSlugs: string[] = [];
 
@@ -47,7 +46,11 @@ afterEach(() => {
 describe('getStorageConfig', () => {
   it('should return correct storage paths', () => {
     const config = getStorageConfig();
-    expect(config.baseDir).toContain('.mockmate');
+    if (process.env.MOCKMATE_DATA_DIR) {
+      expect(config.baseDir).toBe(path.resolve(process.env.MOCKMATE_DATA_DIR));
+    } else {
+      expect(config.baseDir).toContain('.mockmate');
+    }
     expect(config.projectsDir).toContain('projects');
     expect(config.certsDir).toContain('certs');
     expect(config.configFile).toContain('config.json');
