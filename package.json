@@ -1,0 +1,50 @@
+{
+  "name": "mockmate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local mock API server for mobile developers",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace=packages/server",
+    "dev:dashboard": "npm run dev --workspace=packages/dashboard",
+    "build:server": "npm run build --workspace=packages/server",
+    "build:dashboard": "npm run build --workspace=packages/dashboard",
+    "build": "npm run build:dashboard && npm run build:server",
+    "start": "npm run build && npm run start --workspace=packages/server",
+    "postinstall": "npm run build",
+    "test": "npm run test --workspaces --if-present -- --run && npm run test:tooling",
+    "test:tooling": "node --test tools/*.test.mjs",
+    "test:traffic-absence": "node --test tools/traffic-contract-absence.test.mjs",
+    "test:slice3-review-artifacts": "node --test tools/slice3-review-artifacts.test.mjs",
+    "test:integration:server": "npm run test:integration --workspace=packages/server",
+    "test:performance:server": "npm run test:performance --workspace=packages/server",
+    "test:chromium": "node e2e/run-traffic-chromium.mjs",
+    "test:traffic-certification": "npm run test:slice3-review-artifacts && npm run test:traffic-absence && npm run test && npm run test:integration:server && npm run test:performance:server && npm run typecheck --workspace=packages/dashboard && npm run lint && npm run build && npm run test:chromium",
+    "lint": "npm run lint --workspaces"
+  },
+  "keywords": [
+    "mock",
+    "api",
+    "testing",
+    "mobile",
+    "ios",
+    "android"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  },
+  "optionalDependencies": {
+    "lightningcss-darwin-arm64": "1.30.2",
+    "lightningcss-darwin-x64": "1.30.2",
+    "lightningcss-linux-arm64-gnu": "1.30.2",
+    "lightningcss-linux-x64-gnu": "1.30.2",
+    "lightningcss-win32-arm64-msvc": "1.30.2",
+    "lightningcss-win32-x64-msvc": "1.30.2"
+  }
+}

@@ -1,0 +1,37 @@
+# Secrets and local configuration
+.env
+.env.*
+*.pem
+*.key
+secrets/
+
+# Local MockMate state
+.mockmate-dev/
+
+# Generated and machine-specific files
+graphify-out/
+**/node_modules/
+**/dist/
+**/build/
+**/coverage/
+**/*.tsbuildinfo
+package-lock.json
+*.log
+
+# Agent tooling and vendored skill text
+.git/
+.opencode/
+.agents/
+.claude/
+.superpowers/
+.worktrees/
+.playwright-mcp/
+docs/superpowers/
+skills-lock.json
+AGENTS.md
+CLAUDE.md
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
