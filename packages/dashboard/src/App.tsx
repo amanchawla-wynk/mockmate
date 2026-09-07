@@ -307,6 +307,7 @@ function AppContent({
                   <EndpointEditor
                     key={endpoints.selectedEndpoint?.id ?? 'new'}
                     projectId={projectId}
+                    project={activeProject}
                     endpoint={endpoints.selectedEndpoint}
                     onEndpointSaveStarted={() => {
                       const publication = endpoints.beginEndpointPublication();

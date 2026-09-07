@@ -65,7 +65,9 @@ function requiredHeader(response: Response, name: string): string {
 }
 
 async function hashSha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const owned = new Uint8Array(bytes.byteLength);
+  owned.set(bytes);
+  const digest = await crypto.subtle.digest('SHA-256', owned.buffer);
   return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
 }
 
@@ -82,7 +84,8 @@ export async function loadTrafficTextBody(input: {
     throw new Error('Traffic body Content-Length is invalid');
   }
   const contentLength = Number(contentLengthHeader);
-  const decodedView = input.expected.view === 'decoded';
+  const identityExpected = 'sha256' in input.expected ? input.expected : undefined;
+  const decodedView = identityExpected === undefined;
 
   if (decodedView) {
     if (requiredHeader(input.response, 'X-MockMate-View') !== 'decoded') {
@@ -92,10 +95,10 @@ export async function loadTrafficTextBody(input: {
       throw new Error('Traffic body Content-Type does not match its descriptor');
     }
   } else {
-    if (contentLength !== input.expected.byteCount) {
+    if (contentLength !== identityExpected.byteCount) {
       throw new Error('Traffic body Content-Length does not match its descriptor');
     }
-    if (requiredHeader(input.response, 'X-MockMate-Sha256') !== input.expected.sha256) {
+    if (requiredHeader(input.response, 'X-MockMate-Sha256') !== identityExpected.sha256) {
       throw new Error('Traffic body SHA-256 does not match its descriptor');
     }
     if (requiredHeader(input.response, 'Content-Type') !== input.expected.mediaType) {
@@ -105,7 +108,7 @@ export async function loadTrafficTextBody(input: {
 
   const expectedSha256 = decodedView
     ? requiredHeader(input.response, 'X-MockMate-Decoded-Sha256')
-    : input.expected.sha256;
+    : identityExpected.sha256;
   if (decodedView && !/^[0-9a-f]{64}$/.test(expectedSha256)) {
     throw new Error('Traffic body decoded SHA-256 header is invalid');
   }

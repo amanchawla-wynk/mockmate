@@ -121,17 +121,14 @@ test('keeps body editing lazy, worker-owned, conflict-safe, and navigation-safe'
     `/api/admin/projects/${trafficFixture.projectId}`,
   );
   expect(beforeActivation.activeStateId).toBe(trafficFixture.workflow.activeStateId);
-  expect(beforeActivation.baseStateId).toBe(trafficFixture.workflow.baseStateId);
   await page.getByRole('button', { name: `Activate ${trafficFixture.workflow.partialStateName}` }).click();
-  await expect(page.getByText('2 endpoints will fall back')).toBeVisible();
-  await page.getByRole('button', { name: 'Activate with fallback' }).click();
   await expect.poll(async () => (
     await trafficFixture.admin<Project>(`/api/admin/projects/${trafficFixture.projectId}`)
   ).activeStateId).toBe(trafficFixture.workflow.partialStateId);
   const afterActivation = await trafficFixture.admin<Project>(
     `/api/admin/projects/${trafficFixture.projectId}`,
   );
-  expect(afterActivation.baseStateId).toBe(trafficFixture.workflow.baseStateId);
+  expect(afterActivation.appStateMode).toBe('enabled');
 
   const evidence = await workerEvidence(page);
   expect(evidence.urls).toContainEqual(expect.stringMatching(/\/assets\/json\.worker-[^/]+\.js$/));

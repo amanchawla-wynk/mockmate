@@ -31,7 +31,6 @@ const reviewedState: AppStateSummary = {
   revision: 4,
   boundEndpointCount: 0,
   totalEndpointCount: 0,
-  missingEndpointIds: [],
 };
 
 function summary(id: string, path: string): TrafficSummary {
@@ -171,7 +170,6 @@ describe('App Traffic owner integration', () => {
   const bodySignals = new Map<string, AbortSignal>();
   const bodyRequests = new Map<string, number>();
   let failCanonicalRefresh = false;
-  let detailRequests = 0;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -180,7 +178,6 @@ describe('App Traffic owner integration', () => {
     bodySignals.clear();
     bodyRequests.clear();
     failCanonicalRefresh = false;
-    detailRequests = 0;
     for (const id of ['trf_1', 'trf_2', 'trf_3']) bodyResponses.set(id, deferred<Response>());
 
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -224,7 +221,6 @@ describe('App Traffic owner integration', () => {
       }
       const detailMatch = /\/traffic\/(trf_[^/?]+)$/.exec(url);
       if (detailMatch) {
-        detailRequests += 1;
         const item = summaries.find(candidate => candidate.id === detailMatch[1])!;
         if (item.id.startsWith('trf_promote')) return Promise.resolve(json(promotable(item)));
         return Promise.resolve(json(detail(item, item.id === 'trf_binary' ? 'application/octet-stream' : 'text/plain')));

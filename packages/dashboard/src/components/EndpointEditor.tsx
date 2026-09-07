@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react';
 import { ApiClientError, endpointsApi, variantsApi } from '../api/client';
 import type {
   CreateVariantInput,
@@ -7,6 +7,7 @@ import type {
   EndpointMode,
   HttpMethod,
   MatchExpression,
+  Project,
   ResponseVariant,
   VariantDeletionImpact,
 } from '../api/types';
@@ -17,6 +18,7 @@ import { VariantDeleteDialog, type VariantDeleteDialogResult } from './VariantDe
 
 export interface EndpointEditorProps {
   projectId: string;
+  project?: Project;
   endpoint?: EndpointDetail;
   onEndpointSaveStarted(): (endpoint: EndpointDetail) => boolean;
   onSaved(endpoint: EndpointDetail): void;
@@ -58,7 +60,7 @@ function comparableRows(rows: MatcherRow[]) {
   return rows.map(({ name, operator, value }) => ({ name, operator, value }));
 }
 
-export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onSaved, onDeleted, onClose, onDirtyChange, onAttemptNavigation }: EndpointEditorProps) {
+export function EndpointEditor({ projectId, project, endpoint, onEndpointSaveStarted, onSaved, onDeleted, onClose, onDirtyChange, onAttemptNavigation }: EndpointEditorProps) {
   const [currentEndpoint, setCurrentEndpoint] = useState(endpoint);
   const [name, setName] = useState(endpoint?.name ?? '');
   const [description, setDescription] = useState(endpoint?.description ?? '');
@@ -91,12 +93,8 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
   const modeOperationRef = useRef<object | undefined>(undefined);
   const mountedRef = useRef(true);
   const currentEndpointIdRef = useRef(currentEndpoint?.id);
-  currentEndpointIdRef.current = currentEndpoint?.id;
   const currentEndpointRevisionRef = useRef(currentEndpoint?.revision);
-  currentEndpointRevisionRef.current = currentEndpoint?.revision;
   const dirtyVariantKey = useRef<string | undefined>(undefined);
-  const onDirtyChangeRef = useRef(onDirtyChange);
-  onDirtyChangeRef.current = onDirtyChange;
   const key = `endpoint:${projectId}:${currentEndpoint?.id ?? 'new'}:${currentEndpoint?.revision ?? 0}`;
   const dirty = name !== (currentEndpoint?.name ?? '')
     || description !== (currentEndpoint?.description ?? '')
@@ -106,6 +104,22 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
     || JSON.stringify(comparableRows(queryMatchers)) !== JSON.stringify(comparableRows(queryRows(currentEndpoint)))
     || JSON.stringify(comparableRows(headerMatchers)) !== JSON.stringify(comparableRows(headerRows(currentEndpoint)))
     || requestPath !== (currentEndpoint?.matcher.path ?? '/');
+  const adoptCanonicalEndpoint = useEffectEvent((nextEndpoint: EndpointDetail, adoptFields: boolean) => {
+    setCurrentEndpoint(nextEndpoint);
+    if (adoptFields) {
+      setName(nextEndpoint.name);
+      setDescription(nextEndpoint.description ?? '');
+      setMethod(nextEndpoint.matcher.method);
+      setBaseUrl(nextEndpoint.baseUrl);
+      setMode(nextEndpoint.mode);
+      setQueryMatchers(queryRows(nextEndpoint));
+      setHeaderMatchers(headerRows(nextEndpoint));
+      setRequestPath(nextEndpoint.matcher.path);
+    }
+    setSelectedVariantId(current => nextEndpoint.variants.some(variant => variant.id === current)
+      ? current
+      : nextEndpoint.defaultVariantId);
+  });
 
   useLayoutEffect(() => {
     if (!endpoint
@@ -113,20 +127,9 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
       || endpoint.id !== currentEndpoint.id
       || endpoint.revision <= currentEndpoint.revision) return;
     const adoptEndpointFields = !dirty;
-    setCurrentEndpoint(endpoint);
-    if (adoptEndpointFields) {
-      setName(endpoint.name);
-      setDescription(endpoint.description ?? '');
-      setMethod(endpoint.matcher.method);
-      setBaseUrl(endpoint.baseUrl);
-      setMode(endpoint.mode);
-      setQueryMatchers(queryRows(endpoint));
-      setHeaderMatchers(headerRows(endpoint));
-      setRequestPath(endpoint.matcher.path);
-    }
-    setSelectedVariantId(current => endpoint.variants.some(variant => variant.id === current)
-      ? current
-      : endpoint.defaultVariantId);
+    // Canonical revisions intentionally synchronize local editor state while preserving dirty fields.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    adoptCanonicalEndpoint(endpoint, adoptEndpointFields);
   }, [currentEndpoint, dirty, endpoint]);
 
   const discardEndpoint = () => {
@@ -141,9 +144,19 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
     setError(undefined);
     setServerRevision(undefined);
   };
+  const clearDirtyRegistration = useEffectEvent((draftKey: string) => {
+    onDirtyChange?.(draftKey, false);
+  });
+  const reportDirty = useEffectEvent(() => {
+    onDirtyChange?.(key, dirty, discardEndpoint);
+  });
 
-  useEffect(() => () => onDirtyChangeRef.current?.(key, false), [key]);
-  useEffect(() => onDirtyChange?.(key, dirty, discardEndpoint), [dirty, key, onDirtyChange]);
+  useEffect(() => () => clearDirtyRegistration(key), [key]);
+  useEffect(() => reportDirty(), [dirty, key]);
+  useLayoutEffect(() => {
+    currentEndpointIdRef.current = currentEndpoint?.id;
+    currentEndpointRevisionRef.current = currentEndpoint?.revision;
+  }, [currentEndpoint?.id, currentEndpoint?.revision]);
   useLayoutEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -231,6 +244,9 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
 
   const selectedVariant = currentEndpoint?.variants.find(variant => variant.id === selectedVariantId)
     ?? currentEndpoint?.variants[0];
+
+  // An active App State binds Endpoints to Variants, so Serving now stops deciding what is mocked.
+  const appStatesDriving = project?.appStateMode === 'enabled' && project.activeStateId !== undefined;
 
   const structuralDraftKeys = () => [dirty ? key : undefined, dirtyVariantKey.current]
     .filter((draftKey): draftKey is string => draftKey !== undefined);
@@ -393,8 +409,8 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
     }
   };
 
-  const setFallback = async () => {
-    if (!currentEndpoint || !selectedVariant) return;
+  const setServingNow = async () => {
+    if (!currentEndpoint || !selectedVariant || appStatesDriving) return;
     const completePublication = onEndpointSaveStarted();
     setStructuralLoading(true);
     setError(undefined);
@@ -408,7 +424,7 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
           { defaultVariantId: selectedVariant.id },
         );
       } catch (caught) {
-        reportStructuralError(caught, 'Failed to set fallback Variant');
+        reportStructuralError(caught, 'Failed to set the Serving now Variant');
         return;
       }
       await reloadCommittedChange(completePublication, selectedVariant.id);
@@ -779,7 +795,7 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
       {currentEndpoint?.mode === 'passthrough'
         && (currentEndpoint.variants.length === 0 || !currentEndpoint.defaultVariantId) ? (
           <p className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-            Mock not ready. Add a Variant and choose a fallback before switching this Endpoint to mock mode.
+            Mock not ready. Add a Variant and choose what it serves now before switching this Endpoint to mock mode.
           </p>
         ) : null}
 
@@ -818,7 +834,7 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
                   {variant.name}
                   {variant.id === currentEndpoint.defaultVariantId ? (
                     <span className="ml-1.5 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-800">
-                      Fallback
+                      Serving now
                     </span>
                   ) : null}
                 </button>
@@ -849,11 +865,14 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
                 {selectedVariant.id !== currentEndpoint.defaultVariantId ? (
                   <button
                     type="button"
-                    disabled={structuralLoading}
-                    onClick={() => attemptStructuralAction(() => void setFallback())}
+                    disabled={structuralLoading || appStatesDriving}
+                    {...(appStatesDriving
+                      ? { title: 'Disable App States to change Serving now' }
+                      : {})}
+                    onClick={() => attemptStructuralAction(() => void setServingNow())}
                     className="rounded px-2 py-1 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                   >
-                    Set as fallback
+                    Set as Serving now
                   </button>
                 ) : null}
                 <button
@@ -866,7 +885,7 @@ export function EndpointEditor({ projectId, endpoint, onEndpointSaveStarted, onS
                   Delete Variant
                 </button>
                 {currentEndpoint.mode === 'mock' && currentEndpoint.variants.length === 1 ? (
-                  <p className="px-2 py-1 text-xs text-gray-500">Mock Endpoints require a fallback response</p>
+                  <p className="px-2 py-1 text-xs text-gray-500">Mock Endpoints require a Serving now response</p>
                 ) : null}
               </div>
             </details>

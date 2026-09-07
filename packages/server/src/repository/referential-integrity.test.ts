@@ -7,7 +7,7 @@ import type { ValidatedProjectSnapshot } from './snapshot';
 
 function snapshot(): ValidatedProjectSnapshot {
   return {
-    project: projectRecord({ activeStateId: 'state_1', baseStateId: 'state_1' }),
+    project: projectRecord({ appStateMode: 'enabled', activeStateId: 'state_1' }),
     settings: settingsRecord(),
     endpoints: new Map([['ep_1', endpointRecord()]]),
     states: new Map([['state_1', stateRecord()]]),
@@ -37,7 +37,6 @@ describe('validateReferentialIntegrity', () => {
       mode: 'passthrough', variants: [], defaultVariantId: undefined,
     })]]);
     delete candidate.project.activeStateId;
-    delete candidate.project.baseStateId;
     candidate.states = new Map();
     expect(validateReferentialIntegrity(candidate)).toEqual([]);
   });

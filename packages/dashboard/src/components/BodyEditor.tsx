@@ -61,7 +61,10 @@ export function BodyEditor({
   onSaveBody,
 }: BodyEditorProps) {
   const snapshot = useSyncExternalStore(handle.subscribe, handle.getSnapshot, handle.getSnapshot);
-  const [mediaType, setMediaType] = useState(initialMediaType);
+  const [mediaTypeState, setMediaTypeState] = useState(() => ({
+    owner: initialMediaType,
+    value: initialMediaType,
+  }));
   const [validity, setValidity] = useState<BodyDraft['validity']>(initialValidity);
   const [validationMessage, setValidationMessage] = useState(initialValidationMessage);
   const [formattingGeneration, setFormattingGeneration] = useState<number>();
@@ -70,7 +73,20 @@ export function BodyEditor({
   const mounted = useRef(true);
   const observedValidationGeneration = useRef<number | undefined>(undefined);
   const reportChange = useEffectEvent(onChange);
+  const beginValidation = useEffectEvent((
+    nextMediaType: string,
+    nextValidity: BodyDraft['validity'],
+    documentChanged: boolean,
+  ) => {
+    if (documentChanged) setFormattingGeneration(undefined);
+    setValidity(nextValidity);
+    setValidationMessage(undefined);
+    onChange(nextMediaType, nextValidity, undefined, documentChanged);
+  });
   const documentIdentity = bodyDocumentIdentityKey(handle.identity);
+  const mediaType = mediaTypeState.owner === initialMediaType
+    ? mediaTypeState.value
+    : initialMediaType;
 
   useEffect(() => {
     mounted.current = true;
@@ -79,10 +95,6 @@ export function BodyEditor({
       operationGeneration.current += 1;
     };
   }, []);
-
-  useEffect(() => {
-    setMediaType(initialMediaType);
-  }, [initialMediaType]);
 
   useEffect(() => {
     if (!readySnapshot(snapshot)) return;
@@ -94,16 +106,11 @@ export function BodyEditor({
     observedValidationGeneration.current = validationGeneration;
     const generation = operationGeneration.current + 1;
     operationGeneration.current = generation;
-    if (documentChanged) setFormattingGeneration(undefined);
     if (!isJsonMediaType(mediaType)) {
-      setValidity('valid');
-      setValidationMessage(undefined);
-      reportChange(mediaType, 'valid', undefined, documentChanged);
+      beginValidation(mediaType, 'valid', documentChanged);
       return;
     }
-    setValidity('unknown');
-    setValidationMessage(undefined);
-    reportChange(mediaType, 'unknown', undefined, documentChanged);
+    beginValidation(mediaType, 'unknown', documentChanged);
 
     const timer = window.setTimeout(() => {
       const current = handle.getSnapshot();
@@ -145,7 +152,7 @@ export function BodyEditor({
   const handleMediaTypeChange = (nextMediaType: string) => {
     operationGeneration.current += 1;
     setFormattingGeneration(undefined);
-    setMediaType(nextMediaType);
+    setMediaTypeState({ owner: initialMediaType, value: nextMediaType });
     const nextValidity = isJsonMediaType(nextMediaType) ? 'unknown' : 'valid';
     setValidity(nextValidity);
     setValidationMessage(undefined);

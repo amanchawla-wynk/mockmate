@@ -89,7 +89,7 @@ function Summary({
         <li>Imported origins and query values become Endpoint matchers only.</li>
         <li>Interception settings are unchanged.</li>
         <li>Imported Endpoints remain unbound in existing App States.</li>
-        <li>Endpoint fallback behavior remains available.</li>
+        <li>Each Endpoint keeps its Serving now Variant.</li>
       </ul>
       {preview.affectedStates.length > 0 ? (
         <p className="mt-2 text-xs text-gray-600">

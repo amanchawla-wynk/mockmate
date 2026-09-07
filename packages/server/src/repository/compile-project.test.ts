@@ -254,14 +254,16 @@ describe('compiled matching and decisions', () => {
       endpointId: 'ep_pass',
       endpointName: 'Get profile',
       specificity: match.specificity,
+      endpointMode: 'passthrough',
+      fallbackReasons: [],
     });
   });
 });
 
 describe('App State mode and compiled isolation', () => {
-  it('uses active, base, and fallback resolution while enabled', () => {
+  it('uses the active state binding while enabled', () => {
     const compiled = compileProject(snapshot({
-      project: { activeStateId: 'state_active', baseStateId: 'state_base' },
+      project: { appStateMode: 'enabled', activeStateId: 'state_active' },
     }));
     const match = matchRequest(compiled, request());
     if (!match) throw new Error('Expected a match');
@@ -281,7 +283,6 @@ describe('App State mode and compiled isolation', () => {
       project: {
         appStateMode: 'disabled',
         activeStateId: 'state_active',
-        baseStateId: 'state_base',
       },
     }));
     const match = matchRequest(compiled, request());
@@ -313,7 +314,23 @@ describe('App State mode and compiled isolation', () => {
     expect(calculateStateCoverage(compiled, 'state_partial')).toEqual({
       bound: 0,
       total: 1,
-      missingEndpointIds: ['ep_mock'],
+    });
+  });
+
+  it.each([
+    ['no active state', {}, 'active_state_unbound'],
+    ['an unbound active state', { activeStateId: 'state_active' }, 'active_state_unbound'],
+  ] as const)('passes through a mock Endpoint while enabled with %s', (_name, project, reason) => {
+    const compiled = compileProject(snapshot({
+      project: { appStateMode: 'enabled', ...project },
+      states: [stateRecord({ id: 'state_active', bindings: {} })],
+    }));
+    const match = matchRequest(compiled, request());
+    if (!match) throw new Error('Expected a match');
+    expect(resolveEndpoint(compiled, match)).toMatchObject({
+      kind: 'passthrough',
+      endpointMode: 'mock',
+      fallbackReasons: [reason],
     });
   });
 

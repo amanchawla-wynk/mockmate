@@ -49,7 +49,7 @@ describe('VariantDeleteDialog', () => {
       />,
     );
 
-    expect(screen.getByText('This Variant is the fallback response.')).toBeVisible();
+    expect(screen.getByText('This Variant is Serving now.')).toBeVisible();
     const confirm = screen.getByRole('button', { name: 'Delete Variant' });
     expect(confirm).toBeDisabled();
 

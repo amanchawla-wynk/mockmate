@@ -4,7 +4,12 @@ import { useLayoutEffect, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiClientError, endpointsApi, variantsApi } from '../api/client';
-import type { EndpointDeletionImpact, EndpointDetail, VariantDeletionImpact } from '../api/types';
+import type {
+  EndpointDeletionImpact,
+  EndpointDetail,
+  Project,
+  VariantDeletionImpact,
+} from '../api/types';
 import { EndpointEditor } from './EndpointEditor';
 
 vi.mock('../api/client', async importOriginal => ({
@@ -43,6 +48,16 @@ const endpoint: EndpointDetail = {
     { id: 'var_2', endpointId: 'ep_1', name: 'Denied', status: 403, responseHeaders: {}, revision: 2 },
   ],
   revision: 4,
+};
+
+const project: Project = {
+  schemaVersion: 4,
+  id: 'prj_1',
+  name: 'Playback project',
+  appStateMode: 'disabled',
+  revision: 3,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
 function deferred<T>() {
@@ -203,12 +218,12 @@ describe('EndpointEditor', () => {
     expect(screen.getByLabelText('Variant name')).toHaveValue('Local Allowed');
   });
 
-  it('renders every Variant as a tab and marks the canonical fallback', () => {
+  it('renders every Variant as a tab and marks the canonical Serving now Variant', () => {
     renderEditor();
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map(tab => tab.textContent)).toEqual(['AllowedFallback', 'Denied']);
-    expect(within(tabs[0]).getByText('Fallback')).toBeVisible();
+    expect(tabs.map(tab => tab.textContent)).toEqual(['AllowedServing now', 'Denied']);
+    expect(within(tabs[0]).getByText('Serving now')).toBeVisible();
     expect(screen.getByText('Endpoint revision 4')).toBeVisible();
   });
 
@@ -394,7 +409,7 @@ describe('EndpointEditor', () => {
       name: created.name, status: 200, responseHeaders: {},
     });
     expect(await screen.findByLabelText('Variant name')).toHaveValue(created.name);
-    expect(screen.getByText('Fallback')).toBeVisible();
+    expect(screen.getByText('Serving now')).toBeVisible();
     expect(endpointsApi.update).not.toHaveBeenCalled();
     expect(await screen.findByText('Endpoint revision 5')).toBeVisible();
     expect(screen.queryByText(/Mock not ready/)).not.toBeInTheDocument();
@@ -402,7 +417,7 @@ describe('EndpointEditor', () => {
     expect(endpointsApi.setMode).toHaveBeenCalledWith('prj_1', 'ep_1', 'mock', 5);
   });
 
-  it('does not repeat a committed fallback mutation when canonical reload is retried', async () => {
+  it('does not repeat a committed Serving now mutation when canonical reload is retried', async () => {
     const refreshed = { ...endpoint, defaultVariantId: 'var_2', revision: 5 };
     vi.mocked(endpointsApi.update).mockResolvedValue(refreshed);
     vi.mocked(endpointsApi.get)
@@ -411,7 +426,7 @@ describe('EndpointEditor', () => {
     renderEditor();
     await userEvent.click(screen.getByRole('tab', { name: 'Denied' }));
     await openVariantActions();
-    await userEvent.click(screen.getByRole('button', { name: 'Set as fallback' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Set as Serving now' }));
 
     expect(await screen.findByText('Change saved, refresh failed')).toBeVisible();
     expectPostCommitMutationLock();
@@ -509,7 +524,7 @@ describe('EndpointEditor', () => {
     expect(screen.getByLabelText('Endpoint name')).toHaveValue('Playback');
     expect(screen.getByLabelText('Endpoint description')).toHaveValue('Local Endpoint draft');
     expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual([
-      'DeniedFallback',
+      'DeniedServing now',
       'Saved Variant',
     ]);
     expect(onSaved).toHaveBeenCalledWith(refreshed);
@@ -759,7 +774,7 @@ describe('EndpointEditor', () => {
     expect(cloneInput.responseHeaders['set-cookie']).not.toBe(endpoint.variants[0].responseHeaders['set-cookie']);
     expect(endpointsApi.get).toHaveBeenCalledWith('prj_1', 'ep_1');
     expect(await screen.findByText('Endpoint revision 8')).toBeVisible();
-    expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Denied', 'Copied failure', 'AllowedFallback']);
+    expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Denied', 'Copied failure', 'AllowedServing now']);
     expect(screen.getByLabelText('Variant name')).toHaveValue('Copied failure');
     expect(onSaved).toHaveBeenCalledWith(refreshed);
   });
@@ -783,7 +798,7 @@ describe('EndpointEditor', () => {
     expect(await screen.findByText('Endpoint revision 5')).toBeVisible();
   });
 
-  it('sets fallback with the current revision and publishes canonical detail', async () => {
+  it('sets Serving now with the current revision and publishes canonical detail', async () => {
     const refreshed = {
       ...endpoint,
       defaultVariantId: 'var_2',
@@ -796,12 +811,41 @@ describe('EndpointEditor', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Denied' }));
     await openVariantActions();
-    await userEvent.click(screen.getByRole('button', { name: 'Set as fallback' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Set as Serving now' }));
 
     expect(endpointsApi.update).toHaveBeenCalledWith('prj_1', 'ep_1', 4, { defaultVariantId: 'var_2' });
     expect(endpointsApi.get).toHaveBeenCalledWith('prj_1', 'ep_1');
     expect(await screen.findByText('Endpoint revision 9')).toBeVisible();
-    expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['DeniedFallback', 'Allowed']);
+    expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['DeniedServing now', 'Allowed']);
+  });
+
+  it.each([
+    ['App States are disabled', { appStateMode: 'disabled', activeStateId: 'state_1' }],
+    ['no App State is active', { appStateMode: 'enabled', activeStateId: undefined }],
+  ] as const)('keeps Serving now editable while %s', async (_label, selection) => {
+    renderEditor({ project: { ...project, ...selection } });
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Denied' }));
+    await openVariantActions();
+
+    const action = screen.getByRole('button', { name: 'Set as Serving now' });
+    expect(action).toBeEnabled();
+    expect(action).not.toHaveAttribute('title');
+  });
+
+  it('disables Serving now while an active App State drives the mocks', async () => {
+    renderEditor({ project: { ...project, appStateMode: 'enabled', activeStateId: 'state_1' } });
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Denied' }));
+    await openVariantActions();
+
+    const action = screen.getByRole('button', { name: 'Set as Serving now' });
+    expect(action).toBeDisabled();
+    expect(action).toHaveAttribute('title', 'Disable App States to change Serving now');
+    expect(screen.getByRole('tab', { name: 'Denied' })).toBeEnabled();
+
+    await userEvent.click(action);
+    expect(endpointsApi.update).not.toHaveBeenCalled();
   });
 
   it('blocks deletion of a referenced fallback without offering binding rewrites', async () => {
@@ -929,7 +973,7 @@ describe('EndpointEditor', () => {
     await openVariantActions();
 
     expect(screen.getByRole('button', { name: 'Delete Variant' })).toBeDisabled();
-    expect(screen.getByText('Mock Endpoints require a fallback response')).toBeVisible();
+    expect(screen.getByText('Mock Endpoints require a Serving now response')).toBeVisible();
   });
 
   it('deletes the last unreferenced passthrough Variant without a replacement', async () => {
@@ -963,7 +1007,7 @@ describe('EndpointEditor', () => {
     expect(screen.getByRole('button', { name: 'New Variant' })).toBeEnabled();
   });
 
-  it('guards create, clone, fallback, and delete with all dirty draft keys', async () => {
+  it('guards create, clone, Serving now, and delete with all dirty draft keys', async () => {
     const onAttemptNavigation = vi.fn();
     vi.mocked(variantsApi.deletionImpact).mockResolvedValue(referencedImpact);
     renderEditor({ onAttemptNavigation });
@@ -978,7 +1022,7 @@ describe('EndpointEditor', () => {
     await openVariantActions();
     await userEvent.click(screen.getByRole('button', { name: 'Clone Variant' }));
     await userEvent.click(screen.getByRole('button', { name: 'Delete Variant' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Set as fallback' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Set as Serving now' }));
 
     expect(onAttemptNavigation).toHaveBeenCalledTimes(4);
     for (const [, keys] of onAttemptNavigation.mock.calls) {
@@ -1119,7 +1163,7 @@ describe('EndpointEditor', () => {
     expect(screen.queryByText(/Server revision/)).not.toBeInTheDocument();
     dialog = screen.getByRole('dialog', { name: 'Delete Denied' });
     expect(within(dialog).getByText('A fresh replacement Variant is required')).toBeVisible();
-    expect(within(dialog).getByText('This Variant is the fallback response.')).toBeVisible();
+    expect(within(dialog).getByText('This Variant is Serving now.')).toBeVisible();
     expect(within(dialog).getByLabelText('Replacement Variant')).toHaveValue('');
     expect(within(dialog).getByRole('button', { name: 'Delete Variant' })).toBeDisabled();
 
@@ -1390,7 +1434,7 @@ describe('EndpointEditor', () => {
     expect(completePublication).toHaveBeenCalledWith(canonicalEndpoint);
     expect(screen.getByText('Endpoint revision 8')).toBeVisible();
     expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual([
-      'DeniedFallback',
+      'DeniedServing now',
       'Saved Variant',
     ]);
     expect(screen.getByLabelText('Variant name')).toHaveValue('Saved Variant');
@@ -1428,7 +1472,7 @@ describe('EndpointEditor', () => {
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByText('Endpoint revision 4')).toBeVisible();
     expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual([
-      'AllowedFallback',
+      'AllowedServing now',
       'Denied',
     ]);
   });

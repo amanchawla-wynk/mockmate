@@ -16,6 +16,8 @@ const passthrough: EndpointDecision & { kind: 'passthrough' } = {
   endpointId: 'ep_passthrough',
   endpointName: 'Selected passthrough',
   specificity: 120,
+  endpointMode: 'passthrough',
+  fallbackReasons: [],
 };
 
 const mock: EndpointDecision & { kind: 'mock' } = {

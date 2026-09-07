@@ -42,7 +42,7 @@ describe('InterceptionSettings', () => {
     });
   });
 
-  it('saves exact suggestions and all three settings in one revisioned command', async () => {
+  it('saves exact suggestions and always-on capture in one revisioned command', async () => {
     const saved = { ...settings, interceptHosts: ['api.example.test', 'upload.example.test'], captureRawTraffic: true, revision: 10 };
     vi.mocked(projectsApi.updateRuntimeSettings).mockResolvedValue(saved);
     const onUpdate = vi.fn();
@@ -50,7 +50,6 @@ describe('InterceptionSettings', () => {
     await screen.findByRole('button', { name: 'Save interception settings' });
 
     await userEvent.click(screen.getByRole('checkbox', { name: 'Intercept upload.example.test' }));
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Capture raw traffic' }));
     await userEvent.click(screen.getByRole('button', { name: 'Save interception settings' }));
 
     expect(projectsApi.updateRuntimeSettings).toHaveBeenCalledWith('prj_1', {
@@ -63,7 +62,9 @@ describe('InterceptionSettings', () => {
   });
 
   it('requires reviewed confirmation for the catch-all pattern', async () => {
-    vi.mocked(projectsApi.updateRuntimeSettings).mockResolvedValue({ ...settings, interceptHosts: ['*'], revision: 10 });
+    vi.mocked(projectsApi.updateRuntimeSettings).mockResolvedValue({
+      ...settings, interceptHosts: ['*'], captureRawTraffic: true, revision: 10,
+    });
     render(<InterceptionSettings project={project} onUpdate={vi.fn()} />);
     const input = await screen.findByLabelText('Intercept host patterns');
     fireEvent.change(input, { target: { value: '*' } });
@@ -73,7 +74,7 @@ describe('InterceptionSettings', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save interception settings' }));
 
     expect(projectsApi.updateRuntimeSettings).toHaveBeenCalledWith('prj_1', {
-      interceptHosts: ['*'], captureRawTraffic: false, debugProvenanceHeaders: true,
+      interceptHosts: ['*'], captureRawTraffic: true, debugProvenanceHeaders: true,
       expectedRevision: 9, confirmInterceptAll: true,
     });
   });
@@ -115,29 +116,39 @@ describe('InterceptionSettings', () => {
     render(<InterceptionSettings project={project} onUpdate={vi.fn()} />);
     const hosts = await screen.findByLabelText('Intercept host patterns');
     fireEvent.change(hosts, { target: { value: 'api.example.test\nupload.example.test' } });
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Capture raw traffic' }));
 
     await userEvent.click(screen.getByRole('button', { name: 'Save interception settings' }));
 
     expect(await screen.findByText('Server revision 10')).toBeVisible();
     expect(hosts).toHaveValue('api.example.test\nupload.example.test');
-    expect(screen.getByRole('checkbox', { name: 'Capture raw traffic' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Debug provenance headers' })).toBeChecked();
     expect(projectsApi.getRuntimeSettings).toHaveBeenCalledTimes(1);
   });
 
   it('reconciles an unknown save through GET without repeating PUT', async () => {
-    const canonical = { ...settings, captureRawTraffic: true, revision: 10 };
+    const canonical = {
+      ...settings,
+      captureRawTraffic: true,
+      debugProvenanceHeaders: false,
+      revision: 10,
+    };
     vi.mocked(projectsApi.updateRuntimeSettings).mockRejectedValue(new Error('connection lost'));
     vi.mocked(projectsApi.getRuntimeSettings)
       .mockResolvedValueOnce(settings)
       .mockResolvedValueOnce(canonical);
     const onUpdate = vi.fn();
     render(<InterceptionSettings project={project} onUpdate={onUpdate} />);
-    await userEvent.click(await screen.findByRole('checkbox', { name: 'Capture raw traffic' }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Debug provenance headers' }));
     await userEvent.click(screen.getByRole('button', { name: 'Save interception settings' }));
 
     await waitFor(() => expect(projectsApi.getRuntimeSettings).toHaveBeenCalledTimes(2));
     expect(projectsApi.updateRuntimeSettings).toHaveBeenCalledTimes(1);
+    expect(projectsApi.updateRuntimeSettings).toHaveBeenCalledWith('prj_1', {
+      interceptHosts: ['api.example.test'],
+      captureRawTraffic: true,
+      debugProvenanceHeaders: false,
+      expectedRevision: 9,
+    });
     expect(onUpdate).toHaveBeenCalledOnce();
   });
 });

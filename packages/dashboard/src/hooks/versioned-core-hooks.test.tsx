@@ -51,7 +51,6 @@ const stateSummary = {
   revision: 1,
   boundEndpointCount: 1,
   totalEndpointCount: 1,
-  missingEndpointIds: [],
 };
 
 const stateDetail = {

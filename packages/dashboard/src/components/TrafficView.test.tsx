@@ -10,7 +10,7 @@ const props = {
   onSelectTraffic: vi.fn(), paused: false, onTogglePaused: vi.fn(), onClear: vi.fn(), onRefresh: vi.fn(),
   states: [{
     id: 'state_reviewed', projectId: 'prj_1', name: 'Reviewed State', tags: [], revision: 4,
-    boundEndpointCount: 1, totalEndpointCount: 1, missingEndpointIds: [],
+    boundEndpointCount: 1, totalEndpointCount: 1,
   }],
 };
 
@@ -34,8 +34,8 @@ const detail: TrafficDetail = {
     body: { side: 'response', state: 'unavailable', observedSize: 0, reason: 'body_unobservable' },
   },
   appState: {
-    mode: 'enabled', selectedStateId: 'state_expired', resolutionSource: 'project_base_state',
-    fallbackReasons: ['active_state_unbound'],
+    mode: 'disabled', resolutionSource: 'endpoint_default',
+    fallbackReasons: ['app_state_mode_disabled'],
   },
   variantId: 'var_default',
   captureState: 'complete',
@@ -156,8 +156,8 @@ describe('TrafficView', () => {
     expect(screen.getByRole('button', { name: 'Mock This' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Mock This' }))
       .toHaveAttribute('title', expect.stringContaining('unavailable'));
-    expect(screen.queryByText('project_base_state')).not.toBeInTheDocument();
-    expect(screen.queryByText('active_state_unbound')).not.toBeInTheDocument();
+    expect(screen.queryByText('endpoint_default')).not.toBeInTheDocument();
+    expect(screen.queryByText('app_state_mode_disabled')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'query' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'body' })).not.toBeInTheDocument();
   });
@@ -327,7 +327,7 @@ describe('TrafficView', () => {
         state: 'eligible',
         review: {
           ...promotable.promotion.state === 'eligible' ? promotable.promotion.review : ({} as never),
-          endpoint: { action: 'create' },
+          endpoint: { action: 'create', targetMode: 'mock' },
         },
       },
     };

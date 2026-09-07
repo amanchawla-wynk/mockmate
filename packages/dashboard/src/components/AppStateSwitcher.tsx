@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { ApiClientError, projectsApi, statesApi } from '../api/client';
 import type { AppStateSummary, EndpointSummary, Project } from '../api/types';
 
@@ -10,23 +10,23 @@ export interface AppStateSwitcherProps {
 }
 
 export function AppStateSwitcher({ project, states, endpoints, onActivated }: AppStateSwitcherProps) {
-  const [pending, setPending] = useState<AppStateSummary>();
   const [error, setError] = useState<string>();
   const [modePendingOwner, setModePendingOwner] = useState<string>();
   const projectOwner = `${project.id}:${project.revision}:${project.appStateMode}`;
   const projectOwnerRef = useRef(projectOwner);
-  projectOwnerRef.current = projectOwner;
   const modeOperation = useRef<{ owner: string; request: number } | undefined>(undefined);
   const nextRequest = useRef(0);
   const mockReadyCount = endpoints.filter(endpoint => endpoint.mode === 'mock' && endpoint.mockReady).length;
 
-  const activate = async (state: AppStateSummary, allowFallback: boolean) => {
+  useLayoutEffect(() => {
+    projectOwnerRef.current = projectOwner;
+  }, [projectOwner]);
+
+  const activate = async (state: AppStateSummary) => {
     try {
       const saved = await statesApi.setSelection(project.id, project.revision, {
         activeStateId: state.id,
-        allowFallback,
       });
-      setPending(undefined);
       onActivated(saved);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Failed to activate App State');
@@ -86,18 +86,15 @@ export function AppStateSwitcher({ project, states, endpoints, onActivated }: Ap
       </div>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       {project.appStateMode === 'disabled' ? (
-        <p className="text-xs text-gray-600">App State selection is dormant while mode is disabled. Active and base State IDs are retained.</p>
+        <p className="text-xs text-gray-600">Serving now controls responses while App States are disabled. The active App State is retained.</p>
       ) : null}
-      <div className="flex flex-wrap gap-2" aria-disabled={project.appStateMode === 'disabled'}>
+      <div className="flex flex-wrap gap-2">
         {states.map(state => (
           <button
             key={state.id}
             type="button"
             aria-label={`Activate ${state.name}`}
-            onClick={() => {
-              if (state.missingEndpointIds.length > 0) setPending(state);
-              else void activate(state, false);
-            }}
+            onClick={() => void activate(state)}
             className={`rounded border px-3 py-2 text-left text-xs ${project.activeStateId === state.id ? 'border-blue-400 bg-blue-50 text-blue-800' : 'border-gray-300 bg-white text-gray-700'}`}
           >
             <span className="block font-medium">{state.name}</span>
@@ -105,15 +102,6 @@ export function AppStateSwitcher({ project, states, endpoints, onActivated }: Ap
           </button>
         ))}
       </div>
-      {pending ? (
-        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          <p>{pending.missingEndpointIds.length} endpoints will fall back</p>
-          <div className="mt-2 flex gap-2">
-            <button type="button" onClick={() => void activate(pending, true)} className="rounded bg-amber-700 px-3 py-1.5 text-xs font-medium text-white">Activate with fallback</button>
-            <button type="button" onClick={() => setPending(undefined)} className="rounded border border-amber-400 px-3 py-1.5 text-xs">Cancel</button>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }

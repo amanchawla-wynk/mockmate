@@ -35,6 +35,32 @@ const endpointDetail: EndpointDetail = {
   ],
   revision: 2,
 };
+const searchEndpoint: EndpointDetail = {
+  schemaVersion: 4,
+  id: 'ep_search',
+  projectId: 'prj_1',
+  name: 'Search results',
+  baseUrl: 'https://api.example.test',
+  matcher: { method: 'GET', path: '/search' },
+  mode: 'mock',
+  defaultVariantId: 'var_hits',
+  variants: [
+    { id: 'var_hits', endpointId: 'ep_search', name: 'Hits', status: 200, responseHeaders: {}, revision: 1 },
+    { id: 'var_empty', endpointId: 'ep_search', name: 'Empty', status: 200, responseHeaders: {}, revision: 1 },
+  ],
+  revision: 2,
+};
+const proxiedEndpoint: EndpointDetail = {
+  schemaVersion: 4,
+  id: 'ep_proxied',
+  projectId: 'prj_1',
+  name: 'Proxied telemetry',
+  baseUrl: 'https://api.example.test',
+  matcher: { method: 'POST', path: '/telemetry' },
+  mode: 'passthrough',
+  variants: [],
+  revision: 1,
+};
 const project: Project = {
   schemaVersion: 4,
   id: 'prj_1',
@@ -88,6 +114,44 @@ describe('AppStateEditor', () => {
     });
   });
 
+  it('binds only unbound mock Endpoints chosen through the picker', async () => {
+    vi.mocked(statesApi.update).mockResolvedValue({
+      ...state,
+      bindings: { ep_playback: 'var_allowed', ep_search: 'var_empty' },
+      revision: 4,
+    });
+    renderEditor({ endpoints: [endpointDetail, searchEndpoint, proxiedEndpoint] });
+
+    expect(screen.queryByLabelText('Search results variant')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Add Endpoint binding' }));
+
+    const endpointPicker = screen.getByLabelText('Mock Endpoint');
+    expect([...endpointPicker.querySelectorAll('option')].map(option => option.textContent))
+      .toEqual(['Choose an Endpoint', 'Search results']);
+
+    await userEvent.selectOptions(endpointPicker, 'ep_search');
+    await userEvent.selectOptions(screen.getByLabelText('Binding Variant'), 'var_empty');
+    await userEvent.click(screen.getByRole('button', { name: 'Add binding' }));
+
+    expect(screen.getByLabelText('Search results variant')).toHaveValue('var_empty');
+    await userEvent.click(screen.getByRole('button', { name: 'Save App State' }));
+    expect(statesApi.update).toHaveBeenCalledWith('prj_1', 'state_1', 3, {
+      bindings: { ep_playback: 'var_allowed', ep_search: 'var_empty' },
+    });
+  });
+
+  it('saves an empty binding set after unbinding every Endpoint', async () => {
+    vi.mocked(statesApi.update).mockResolvedValue({ ...state, bindings: {}, revision: 4 });
+    renderEditor();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Playback authorization binding' }));
+
+    expect(screen.queryByLabelText('Playback authorization variant')).not.toBeInTheDocument();
+    expect(screen.getByText(/No Endpoints are bound/)).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Save App State' }));
+    expect(statesApi.update).toHaveBeenCalledWith('prj_1', 'state_1', 3, { bindings: {} });
+  });
+
   it('owns and disables every App State mutation control until save completes', async () => {
     const user = userEvent.setup();
     const pendingSave = deferred<AppState>();
@@ -138,16 +202,14 @@ describe('AppStateEditor', () => {
   });
 
   it.each([
-    ['Active and Base', { activeStateId: 'state_1', baseStateId: 'state_1' }],
-    ['Active', { activeStateId: 'state_1', baseStateId: undefined }],
-    ['Base', { activeStateId: undefined, baseStateId: 'state_1' }],
-    ['Neither Active nor Base', { activeStateId: undefined, baseStateId: undefined }],
-  ] as const)('describes the %s selection impact and external reference limit', async (label, selection) => {
+    ['active', { activeStateId: 'state_1' }, 'This is the active App State.'],
+    ['not active', { activeStateId: undefined }, 'This App State is not active.'],
+  ] as const)('describes the %s selection impact and external reference limit', async (_label, selection, message) => {
     renderEditor({ project: { ...project, ...selection } });
 
     await userEvent.click(screen.getByRole('button', { name: 'Delete App State' }));
     const dialog = screen.getByRole('dialog', { name: 'Delete App State' });
-    expect(within(dialog).getByText(new RegExp(label))).toBeVisible();
+    expect(within(dialog).getByText(new RegExp(message))).toBeVisible();
     expect(within(dialog).getByText(/External iOS\/Android references cannot be discovered/)).toBeVisible();
     cleanup();
   });

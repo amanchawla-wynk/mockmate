@@ -17,15 +17,11 @@ import type { ValidatedProjectSnapshot } from './snapshot';
 
 export type ResolutionSource =
   | 'project_active_state'
-  | 'project_base_state'
   | 'endpoint_default';
 
 export type FallbackReason =
   | 'app_state_mode_disabled'
-  | 'active_state_not_set'
-  | 'active_state_unbound'
-  | 'base_state_not_set'
-  | 'base_state_unbound';
+  | 'active_state_unbound';
 
 export interface MatchRequest {
   origin: NormalizedOrigin;
@@ -69,7 +65,6 @@ export interface CompiledProject {
   projectId: string;
   appStateMode: 'enabled' | 'disabled';
   activeStateId?: string;
-  baseStateId?: string;
   matchers: ReadonlyArray<{
     endpointId: string;
     matcher: CompiledMatcher;
@@ -100,7 +95,14 @@ export interface ResolvedMock {
 }
 
 export type EndpointDecision =
-  | { kind: 'passthrough'; endpointId: string; endpointName: string; specificity: number }
+  | {
+    kind: 'passthrough';
+    endpointId: string;
+    endpointName: string;
+    specificity: number;
+    endpointMode: EndpointMode;
+    fallbackReasons: FallbackReason[];
+  }
   | {
     kind: 'mock';
     endpointId: string;
@@ -358,13 +360,12 @@ export function compileProject(snapshot: ValidatedProjectSnapshot): CompiledProj
     states.set(state.id, immutableMap(bindings));
   }
 
-  for (const [field, stateId] of [
-    ['activeStateId', snapshot.project.activeStateId],
-    ['baseStateId', snapshot.project.baseStateId],
-  ] as const) {
-    if (stateId !== undefined && !states.has(stateId)) {
-      fail('MISSING_SELECTED_STATE', `Project ${field} references missing App State ${stateId}`);
-    }
+  if (snapshot.project.activeStateId !== undefined
+    && !states.has(snapshot.project.activeStateId)) {
+    fail(
+      'MISSING_SELECTED_STATE',
+      `Project activeStateId references missing App State ${snapshot.project.activeStateId}`,
+    );
   }
 
   matcherValues.sort((left, right) => compareRanks(left.rank, right.rank)
@@ -385,7 +386,6 @@ export function compileProject(snapshot: ValidatedProjectSnapshot): CompiledProj
     projectId: snapshot.project.id,
     appStateMode: snapshot.project.appStateMode,
     ...(snapshot.project.activeStateId === undefined ? {} : { activeStateId: snapshot.project.activeStateId }),
-    ...(snapshot.project.baseStateId === undefined ? {} : { baseStateId: snapshot.project.baseStateId }),
     matchers,
     endpoints: immutableMap(endpoints),
     states: immutableMap(states),
@@ -447,43 +447,21 @@ function resolved(
   };
 }
 
-function resolveMock(compiled: CompiledProject, endpointId: string): ResolvedMock {
+function resolveDefaultMock(compiled: CompiledProject, endpointId: string): ResolvedMock {
   const endpoint = compiled.endpoints.get(endpointId);
   if (!endpoint || endpoint.defaultVariantId === undefined) {
     fail('ENDPOINT_FALLBACK_REQUIRED', `Compiled Endpoint ${endpointId} is not mock-ready`);
   }
-  if (compiled.appStateMode === 'disabled') {
-    return {
-      ...resolved(
+  return {
+    ...resolved(
       compiled,
       endpointId,
       endpoint.defaultVariantId,
       'endpoint_default',
       ['app_state_mode_disabled'],
-      ),
-      selectedStateId: undefined,
-    };
-  }
-  const reasons: FallbackReason[] = [];
-  if (compiled.activeStateId !== undefined) {
-    const variantId = compiled.states.get(compiled.activeStateId)?.get(endpointId);
-    if (variantId !== undefined) {
-      return resolved(compiled, endpointId, variantId, 'project_active_state', reasons, compiled.activeStateId);
-    }
-    reasons.push('active_state_unbound');
-  } else {
-    reasons.push('active_state_not_set');
-  }
-  if (compiled.baseStateId !== undefined) {
-    const variantId = compiled.states.get(compiled.baseStateId)?.get(endpointId);
-    if (variantId !== undefined) {
-      return resolved(compiled, endpointId, variantId, 'project_base_state', reasons, compiled.baseStateId);
-    }
-    reasons.push('base_state_unbound');
-  } else {
-    reasons.push('base_state_not_set');
-  }
-  return resolved(compiled, endpointId, endpoint.defaultVariantId, 'endpoint_default', reasons);
+    ),
+    selectedStateId: undefined,
+  };
 }
 
 export function resolveEndpoint(
@@ -498,6 +476,45 @@ export function resolveEndpoint(
       endpointId: match.endpointId,
       endpointName: endpoint.name,
       specificity: match.specificity,
+      endpointMode: endpoint.mode,
+      fallbackReasons: [],
+    };
+  }
+  if (compiled.appStateMode === 'enabled') {
+    if (compiled.activeStateId === undefined) {
+      return {
+        kind: 'passthrough',
+        endpointId: match.endpointId,
+        endpointName: endpoint.name,
+        specificity: match.specificity,
+        endpointMode: endpoint.mode,
+        fallbackReasons: ['active_state_unbound'],
+      };
+    }
+    const variantId = compiled.states.get(compiled.activeStateId)?.get(match.endpointId);
+    if (variantId === undefined) {
+      return {
+        kind: 'passthrough',
+        endpointId: match.endpointId,
+        endpointName: endpoint.name,
+        specificity: match.specificity,
+        endpointMode: endpoint.mode,
+        fallbackReasons: ['active_state_unbound'],
+      };
+    }
+    return {
+      kind: 'mock',
+      endpointId: match.endpointId,
+      endpointName: endpoint.name,
+      specificity: match.specificity,
+      resolved: resolved(
+        compiled,
+        match.endpointId,
+        variantId,
+        'project_active_state',
+        [],
+        compiled.activeStateId,
+      ),
     };
   }
   return {
@@ -505,14 +522,14 @@ export function resolveEndpoint(
     endpointId: match.endpointId,
     endpointName: endpoint.name,
     specificity: match.specificity,
-    resolved: resolveMock(compiled, match.endpointId),
+    resolved: resolveDefaultMock(compiled, match.endpointId),
   };
 }
 
 export function calculateStateCoverage(
   compiled: CompiledProject,
   stateId: string,
-): { bound: number; total: number; missingEndpointIds: string[] } {
+): { bound: number; total: number } {
   const state = compiled.states.get(stateId);
   if (!state) throw new StateCoverageError(stateId);
   const eligible = [...compiled.endpoints]
@@ -520,12 +537,8 @@ export function calculateStateCoverage(
       && endpoint.defaultVariantId !== undefined
       && endpoint.variants.has(endpoint.defaultVariantId))
     .map(([endpointId]) => endpointId);
-  const missingEndpointIds = eligible
-    .filter(endpointId => !state.has(endpointId))
-    .sort(compareCodeUnits);
   return {
-    bound: eligible.length - missingEndpointIds.length,
+    bound: eligible.filter(endpointId => state.has(endpointId)).length,
     total: eligible.length,
-    missingEndpointIds,
   };
 }

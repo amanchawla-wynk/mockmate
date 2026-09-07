@@ -334,11 +334,11 @@ describe('createRuntime', () => {
       path: '/runtime',
       query: { ok: true, entries: [] },
       headers: [],
-      appState: { mode: 'enabled', fallbackReasons: ['active_state_not_set', 'base_state_not_set'] },
+      appState: { mode: 'enabled', fallbackReasons: ['active_state_unbound'] },
     });
     exchange.setDecision({
       decision: 'direct_miss',
-      appState: { mode: 'enabled', fallbackReasons: ['active_state_not_set', 'base_state_not_set'] },
+      appState: { mode: 'enabled', fallbackReasons: ['active_state_unbound'] },
     });
     exchange.setResponse(404, []);
     await exchange.finalize({ kind: 'response', status: 404, responseBytes: 0 });
@@ -379,13 +379,13 @@ describe('createRuntime', () => {
       path: '/retention-ordering',
       query: { ok: true, entries: [] },
       headers: [['Content-Type', 'text/plain']],
-      appState: { mode: 'enabled', fallbackReasons: ['active_state_not_set', 'base_state_not_set'] },
+      appState: { mode: 'enabled', fallbackReasons: ['active_state_unbound'] },
     });
     exchange.observeRequest(Buffer.from('req!'));
     await exchange.completeRequest();
     exchange.setDecision({
       decision: 'direct_miss',
-      appState: { mode: 'enabled', fallbackReasons: ['active_state_not_set', 'base_state_not_set'] },
+      appState: { mode: 'enabled', fallbackReasons: ['active_state_unbound'] },
     });
     exchange.setResponse(200, [['Content-Type', 'text/plain']]);
     exchange.observeResponse(Buffer.from('resp'));
@@ -427,12 +427,12 @@ describe('createRuntime', () => {
       path: '/cancelled',
       query: { ok: true, entries: [] },
       headers: [['Content-Type', 'text/plain']],
-      appState: { mode: 'enabled', fallbackReasons: ['active_state_not_set', 'base_state_not_set'] },
+      appState: { mode: 'enabled', fallbackReasons: ['active_state_unbound'] },
     });
     exchange.observeRequest(Buffer.from('partial request'));
     exchange.setDecision({
       decision: 'direct_miss',
-      appState: { mode: 'enabled', fallbackReasons: ['active_state_not_set', 'base_state_not_set'] },
+      appState: { mode: 'enabled', fallbackReasons: ['active_state_unbound'] },
     });
     await exchange.finalize({ kind: 'cancelled', status: 499, responseBytes: 0 });
 
@@ -489,7 +489,7 @@ describe('createRuntime', () => {
     await runtime.repository.setStateSelection(
       project.id,
       runtime.repository.getProject(project.id).revision,
-      { activeStateId: state.id, allowFallback: true },
+      { activeStateId: state.id },
     );
     const settings = runtime.repository.getRuntimeSettings(project.id);
     await runtime.repository.updateRuntimeSettings(project.id, {
@@ -778,7 +778,7 @@ describe('createRuntime', () => {
     await runtime.repository.setStateSelection(
       project.id,
       runtime.repository.getProject(project.id).revision,
-      { activeStateId: otherState.id, allowFallback: true },
+      { activeStateId: otherState.id },
     );
     expect(runtime.traffic.get(project.id, exchange.trafficId)?.promotion).toMatchObject({
       state: 'eligible',
@@ -819,11 +819,11 @@ describe('createRuntime', () => {
         path: '/identity',
         query: { ok: true, entries: [{ name: 'access_token', value: 'exact-query-secret' }] },
         headers: [],
-        appState: { mode: 'enabled', fallbackReasons: ['active_state_not_set', 'base_state_not_set'] },
+        appState: { mode: 'enabled', fallbackReasons: ['active_state_unbound'] },
       });
       exchange.setDecision({
         decision: 'direct_miss',
-        appState: { mode: 'enabled', fallbackReasons: ['active_state_not_set', 'base_state_not_set'] },
+        appState: { mode: 'enabled', fallbackReasons: ['active_state_unbound'] },
       });
       exchange.setResponse(200, [
         ['Content-Type', 'text/plain'],
@@ -891,13 +891,13 @@ describe('createRuntime', () => {
       path: '/bodyless',
       query: { ok: true, entries: [] },
       headers: [],
-      appState: { mode: 'enabled', fallbackReasons: ['active_state_not_set', 'base_state_not_set'] },
+      appState: { mode: 'enabled', fallbackReasons: ['active_state_unbound'] },
     });
     exchange.setDecision({
       decision: 'mock',
       endpoint: { id: endpoint.id, name: endpoint.name, specificity: 1, mode: 'mock' },
       variantId: endpoint.variants[0]!.id,
-      appState: { mode: 'enabled', fallbackReasons: ['active_state_not_set', 'base_state_not_set'] },
+      appState: { mode: 'enabled', fallbackReasons: ['active_state_unbound'] },
     });
     exchange.setResponse(204, [['Content-Type', 'application/problem+json']]);
     await exchange.finalize({ kind: 'response', status: 204, responseBytes: 0 });

@@ -82,7 +82,6 @@ export const ProjectSchema: z.ZodType<Project> = z.strictObject({
   description: z.string().optional(),
   appStateMode: z.enum(['enabled', 'disabled']),
   activeStateId: idSchema.optional(),
-  baseStateId: idSchema.optional(),
   revision: nonNegativeIntegerSchema,
   createdAt: timestampSchema,
   updatedAt: timestampSchema,

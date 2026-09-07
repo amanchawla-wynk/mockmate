@@ -62,11 +62,11 @@ const detail: TrafficDetail = {
 const states = [
   {
     id: 'state_active', projectId: 'prj_1', name: 'Signed in', tags: [], revision: 4,
-    boundEndpointCount: 1, totalEndpointCount: 1, missingEndpointIds: [],
+    boundEndpointCount: 1, totalEndpointCount: 1,
   },
   {
     id: 'state_other', projectId: 'prj_1', name: 'Signed out', tags: [], revision: 6,
-    boundEndpointCount: 0, totalEndpointCount: 1, missingEndpointIds: ['ep_1'],
+    boundEndpointCount: 0, totalEndpointCount: 1,
   },
 ];
 

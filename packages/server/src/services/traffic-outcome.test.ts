@@ -29,7 +29,6 @@ const availableResponse: TrafficBodyDescriptor = {
 const configuredContext: TrafficAppStateContext = {
   mode: 'enabled',
   activeStateId: 'state_active',
-  baseStateId: 'state_base',
   fallbackReasons: [],
 };
 
@@ -215,26 +214,6 @@ describe('Traffic outcome builder', () => {
       appState: context({ selectedStateId: 'state_active', resolutionSource: 'project_active_state' }),
       decision: 'mock' as const,
       selectedStateId: 'state_active',
-    },
-    {
-      name: 'mock base state',
-      appState: context({
-        selectedStateId: 'state_base',
-        resolutionSource: 'project_base_state',
-        fallbackReasons: ['active_state_unbound'],
-      }),
-      decision: 'mock' as const,
-      selectedStateId: 'state_base',
-    },
-    {
-      name: 'mock endpoint fallback',
-      appState: context({
-        selectedStateId: undefined,
-        resolutionSource: 'endpoint_default',
-        fallbackReasons: ['active_state_unbound', 'base_state_unbound'],
-      }),
-      decision: 'mock' as const,
-      selectedStateId: undefined,
     },
     {
       name: 'mock while app state is disabled',

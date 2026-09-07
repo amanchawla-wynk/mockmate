@@ -46,7 +46,7 @@ async function withFixture(exitCode, run) {
   }
 }
 
-test("marks the graph stale when an automatic code update fails", async () => {
+test("marks the graph stale after a code update", async () => {
   await withFixture(7, async ({ directory }) => {
     const hooks = await GraphifyPlugin({ directory });
     const output = {};
@@ -61,11 +61,11 @@ test("marks the graph stale when an automatic code update fails", async () => {
 
     const marker = await readFile(join(directory, "graphify-out", ".needs_update"), "utf8");
     assert.equal(marker, "1");
-    assert.match(output.output, /Auto-update failed/);
+    assert.match(output.output, /Marked the graph stale/);
   });
 });
 
-test("treats an apply_patch move destination as a changed path", async () => {
+test("marks the graph stale for an apply_patch move destination", async () => {
   await withFixture(0, async ({ directory, sentinelPath }) => {
     const hooks = await GraphifyPlugin({ directory });
     const output = {};
@@ -83,7 +83,8 @@ test("treats an apply_patch move destination as a changed path", async () => {
       output,
     );
 
-    assert.equal(await readFile(sentinelPath, "utf8"), "called");
-    assert.match(output.output, /Ran `graphify update \.`/);
+    assert.equal(await readFile(join(directory, "graphify-out", ".needs_update"), "utf8"), "1");
+    await assert.rejects(readFile(sentinelPath, "utf8"), { code: "ENOENT" });
+    assert.match(output.output, /Marked the graph stale/);
   });
 });

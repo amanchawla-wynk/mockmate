@@ -31,7 +31,6 @@ const partialState: AppStateSummary = {
   revision: 1,
   boundEndpointCount: 0,
   totalEndpointCount: 2,
-  missingEndpointIds: ['ep_1', 'ep_2'],
 };
 
 describe('AppStateSwitcher', () => {
@@ -51,24 +50,23 @@ describe('AppStateSwitcher', () => {
     }));
   });
 
-  it('requires fallback acknowledgement before activating a partial App State', async () => {
+  it('activates a sparse App State without a coverage acknowledgement', async () => {
+    const activated = { ...project, appStateMode: 'enabled' as const, activeStateId: 'state_expired', revision: 8 };
+    vi.mocked(statesApi.setSelection).mockResolvedValue(activated);
+    const onActivated = vi.fn();
     render(
       <AppStateSwitcher
-        project={project}
+        project={{ ...project, appStateMode: 'disabled', activeStateId: undefined }}
         states={[partialState]}
         endpoints={endpoints}
-        onActivated={vi.fn()}
+        onActivated={onActivated}
       />,
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'Activate Expired session' }));
-    expect(screen.getByText('2 endpoints will fall back')).toBeVisible();
-    expect(statesApi.setSelection).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole('button', { name: 'Activate with fallback' }));
-    expect(statesApi.setSelection).toHaveBeenCalledWith('prj_1', 7, {
-      activeStateId: 'state_expired',
-      allowFallback: true,
-    });
+
+    expect(statesApi.setSelection).toHaveBeenCalledWith('prj_1', 7, { activeStateId: 'state_expired' });
+    expect(onActivated).toHaveBeenCalledWith(activated);
   });
 
   it('counts only mock-ready Endpoints for App State coverage', () => {

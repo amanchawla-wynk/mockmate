@@ -39,7 +39,6 @@ export interface TrafficBrowserFixture {
     partialStateId: string;
     partialStateName: string;
     activeStateId: string;
-    baseStateId: string;
   };
   admin<T>(route: string, init?: RequestInit): Promise<T>;
   setActiveProject(projectId: string | null): Promise<void>;
@@ -284,9 +283,6 @@ async function createTrafficBrowserFixture(workerIndex: number): Promise<Traffic
     const activeState = await admin<AppState>(`/api/admin/projects/${project.id}/states`, {
       method: 'POST', body: JSON.stringify({ name: 'Active State', tags: [], bindings: allBindings }),
     });
-    const baseState = await admin<AppState>(`/api/admin/projects/${project.id}/states`, {
-      method: 'POST', body: JSON.stringify({ name: 'Base State', tags: [], bindings: allBindings }),
-    });
     const partialState = await admin<AppState>(`/api/admin/projects/${project.id}/states`, {
       method: 'POST', body: JSON.stringify({ name: 'Expired session', tags: [], bindings: {} }),
     });
@@ -296,8 +292,6 @@ async function createTrafficBrowserFixture(workerIndex: number): Promise<Traffic
       body: JSON.stringify({
         expectedRevision: currentProject.revision,
         activeStateId: activeState.id,
-        baseStateId: baseState.id,
-        allowFallback: false,
       }),
     });
 
@@ -320,7 +314,6 @@ async function createTrafficBrowserFixture(workerIndex: number): Promise<Traffic
         partialStateId: partialState.id,
         partialStateName: partialState.name,
         activeStateId: activeState.id,
-        baseStateId: baseState.id,
       },
       admin,
       async setActiveProject(projectId) {

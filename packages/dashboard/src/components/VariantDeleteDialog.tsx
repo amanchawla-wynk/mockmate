@@ -77,7 +77,7 @@ function VariantDeleteDialogContent({
 
           {impact.isFallback ? (
             <p className="mt-4 rounded bg-amber-50 p-3 text-sm text-amber-800">
-              This Variant is the fallback response.
+              This Variant is Serving now.
             </p>
           ) : null}
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react';
 import { EditorState } from '@codemirror/state';
 import { ApiClientError, bodiesApi, variantsApi } from '../api/client';
 import type {
@@ -86,10 +86,6 @@ export function VariantEditor({
   const serializedKey = bodyDraftKey(key);
   const canonicalIdentity = JSON.stringify([projectId, endpoint.id, variant.id, variant.revision]);
   const identityRef = useRef(serializedKey);
-  const canonicalVariantRef = useRef(variant);
-  canonicalVariantRef.current = variant;
-  const onDirtyChangeRef = useRef(onDirtyChange);
-  onDirtyChangeRef.current = onDirtyChange;
 
   const [drafts, setDrafts] = useState<BodyDrafts>(() => new Map());
   const [bodyOpenIdentity, setBodyOpenIdentity] = useState<string>();
@@ -144,21 +140,14 @@ export function VariantEditor({
     owned.handle.release();
     bodyDocumentRef.current = undefined;
     setBodyDocument(undefined);
-  }, [bodyDocumentCache]);
+  }, [bodyDocumentCache, setBodyDocument]);
 
-  useLayoutEffect(() => {
-    if (identityRef.current !== serializedKey) variantSaveGeneration.current += 1;
-    identityRef.current = serializedKey;
-  }, [serializedKey]);
-
-  useEffect(() => {
-    // This editor instance deliberately retains body drafts while resetting metadata per identity.
-    const canonicalVariant = canonicalVariantRef.current;
-    setName(canonicalVariant.name);
-    setDescription(canonicalVariant.description ?? '');
-    setStatus(String(canonicalVariant.status));
-    setDelayMs(canonicalVariant.delayMs === undefined ? '' : String(canonicalVariant.delayMs));
-    setHeaderRows(responseHeadersToRows(canonicalVariant.responseHeaders));
+  const resetCanonicalState = useEffectEvent(() => {
+    setName(variant.name);
+    setDescription(variant.description ?? '');
+    setStatus(String(variant.status));
+    setDelayMs(variant.delayMs === undefined ? '' : String(variant.delayMs));
+    setHeaderRows(responseHeadersToRows(variant.responseHeaders));
     setDetachBodyRequested(false);
     releaseBodyDocument();
     setUploadError(undefined);
@@ -168,7 +157,21 @@ export function VariantEditor({
     setCleanAfterSave(false);
     setBodyOpenIdentity(undefined);
     setSavingVariantOwner(undefined);
-  }, [canonicalIdentity, releaseBodyDocument]);
+  });
+  const clearDirtyRegistration = useEffectEvent((draftKey: string) => {
+    onDirtyChange?.(draftKey, false);
+  });
+
+  useLayoutEffect(() => {
+    if (identityRef.current !== serializedKey) variantSaveGeneration.current += 1;
+    identityRef.current = serializedKey;
+  }, [serializedKey]);
+
+  useEffect(() => {
+    // This editor instance deliberately retains body drafts while resetting metadata per identity.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    resetCanonicalState();
+  }, [canonicalIdentity]);
 
   const discardDraft = useCallback(() => {
     const operationKey: BodyDraftKey = {
@@ -200,6 +203,18 @@ export function VariantEditor({
     endpoint.id,
     projectId,
     releaseBodyDocument,
+    setBodyOpenIdentity,
+    setCleanAfterSave,
+    setDelayMs,
+    setDescription,
+    setDetachBodyRequested,
+    setDrafts,
+    setHeaderError,
+    setHeaderRows,
+    setName,
+    setSaveError,
+    setServerRevision,
+    setStatus,
     variant.bodyAssetId,
     variant.delayMs,
     variant.description,
@@ -210,7 +225,7 @@ export function VariantEditor({
     variant.status,
   ]);
 
-  useEffect(() => () => onDirtyChangeRef.current?.(serializedKey, false), [serializedKey]);
+  useEffect(() => () => clearDirtyRegistration(serializedKey), [serializedKey]);
 
   useEffect(() => {
     if (dirty) onDirtyChange?.(serializedKey, true, discardDraft);

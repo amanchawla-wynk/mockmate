@@ -78,7 +78,6 @@ const stateSummary: AppStateSummary = {
   revision: 1,
   boundEndpointCount: 0,
   totalEndpointCount: 1,
-  missingEndpointIds: [],
 };
 const commitResult: ImportCommitResult = {
   createdEndpointIds: ['ep_created'],

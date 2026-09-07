@@ -32,8 +32,6 @@ const deleteInput = z.strictObject({ expectedRevision: revision });
 const selection = z.strictObject({
   expectedRevision: revision,
   activeStateId: stableId.nullable().optional(),
-  baseStateId: stableId.nullable().optional(),
-  allowFallback: z.boolean(),
 });
 const appStateMode = z.strictObject({
   appStateMode: z.enum(['enabled', 'disabled']),

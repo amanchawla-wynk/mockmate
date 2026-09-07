@@ -30,7 +30,6 @@ export function validateReferentialIntegrity(
 
   requireStableId(project.id, 'project.json', '$.id');
   requireStableId(project.activeStateId, 'project.json', '$.activeStateId');
-  requireStableId(project.baseStateId, 'project.json', '$.baseStateId');
   requireStableId(settings.projectId, 'settings.json', '$.projectId');
 
   if (settings.projectId !== project.id) {
@@ -43,17 +42,14 @@ export function validateReferentialIntegrity(
     ));
   }
 
-  for (const field of ['activeStateId', 'baseStateId'] as const) {
-    const stateId = project[field];
-    if (stateId !== undefined && !states.has(stateId)) {
-      findings.push(finding(
-        'INVALID_STATE_BINDING',
-        'project.json',
-        `$.${field}`,
-        `Project ${field} references a missing App State.`,
-        `Select an existing App State or clear ${field}.`,
-      ));
-    }
+  if (project.activeStateId !== undefined && !states.has(project.activeStateId)) {
+    findings.push(finding(
+      'INVALID_STATE_BINDING',
+      'project.json',
+      '$.activeStateId',
+      'Project activeStateId references a missing App State.',
+      'Select an existing App State or clear activeStateId.',
+    ));
   }
 
   const variantOwners = new Map<string, string>();

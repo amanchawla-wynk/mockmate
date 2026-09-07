@@ -225,7 +225,6 @@ async function writeProject(
     name: 'Performance fixture',
     appStateMode: 'enabled',
     activeStateId: 'state_full',
-    baseStateId: 'state_partial',
     revision: 1,
     createdAt: FIXED_TIME,
     updatedAt: FIXED_TIME,

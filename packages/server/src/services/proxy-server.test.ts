@@ -809,9 +809,11 @@ describe('proxy server canonical failure boundaries', () => {
           body: Buffer.from(`/request-${index}`),
         });
       }
-      await new Promise<void>(resolve => setImmediate(resolve));
+      await vi.waitFor(
+        () => expect(runtime.traffic.list(project.id).entries).toHaveLength(25),
+        { timeout: 3_000 },
+      );
       expect(warnings.filter(warning => warning.name === 'MaxListenersExceededWarning')).toEqual([]);
-      expect(runtime.traffic.list(project.id).entries).toHaveLength(25);
     } finally {
       process.off('warning', captureWarning);
       socket.destroy();

@@ -34,13 +34,13 @@ afterEach(async () => {
 describe('schema-v4 repository core', () => {
   it('creates only v4 Project, settings, workspace, pointer, and static metadata records', async () => {
     const project = await repository.createProject({ name: 'Project' });
-    expect(project).toMatchObject({ schemaVersion: 4, appStateMode: 'enabled', revision: 0 });
+    expect(project).toMatchObject({ schemaVersion: 4, appStateMode: 'disabled', revision: 0 });
     expect(project).not.toHaveProperty('baseUrl');
     expect(repository.getRuntimeSettings(project.id)).toEqual({
       schemaVersion: 4,
       projectId: project.id,
       interceptHosts: [],
-      captureRawTraffic: false,
+      captureRawTraffic: true,
       debugProvenanceHeaders: false,
       revision: 0,
     });
@@ -125,9 +125,7 @@ describe('schema-v4 repository core', () => {
     const state = await repository.createState(project.id, {
       name: 'State', tags: [], bindings: { [endpoint.id]: endpoint.variants[0].id },
     });
-    await repository.setStateSelection(project.id, 0, {
-      activeStateId: state.id, allowFallback: true,
-    });
+    await repository.setStateSelection(project.id, 0, { activeStateId: state.id });
     const disabled = await repository.setAppStateMode(project.id, {
       appStateMode: 'disabled', expectedProjectRevision: 1,
     });

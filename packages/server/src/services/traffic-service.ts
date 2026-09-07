@@ -432,7 +432,6 @@ export function createTrafficService(input: {
       if (!accepting || clearingProjects.has(beginInput.projectId)) {
         throw new Error('Traffic service is unavailable');
       }
-      const settings = input.repository.getRuntimeSettings(beginInput.projectId);
       const builder = createTrafficOutcomeBuilder({
         projectId: beginInput.projectId,
         requestId: beginInput.requestId,
@@ -461,7 +460,8 @@ export function createTrafficService(input: {
         trafficId: builder.trafficId,
         generation: builder.generation,
         side: 'request',
-        enabled: settings.captureRawTraffic,
+        // Exact retention is always on; captureRawTraffic no longer gates capture.
+        enabled: true,
         ...(requestMediaType === undefined ? {} : { mediaType: requestMediaType }),
         ...(requestEncoding.valid && requestEncoding.value !== undefined
           ? { contentEncoding: requestEncoding.value }
@@ -534,7 +534,7 @@ export function createTrafficService(input: {
           trafficId: builder.trafficId,
           generation: builder.generation,
           side: 'response',
-          enabled: settings.captureRawTraffic,
+          enabled: true,
           ...(mediaType === undefined ? {} : { mediaType }),
           ...(contentEncoding.valid && contentEncoding.value !== undefined
             ? { contentEncoding: contentEncoding.value }

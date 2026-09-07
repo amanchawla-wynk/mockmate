@@ -19,7 +19,7 @@ export function projectRecord(overrides: Partial<Project> = {}): Project {
     schemaVersion: 4,
     id: 'prj_1',
     name: 'Project One',
-    appStateMode: 'enabled',
+    appStateMode: 'disabled',
     revision: 1,
     createdAt: FIXED_TIME,
     updatedAt: FIXED_TIME,

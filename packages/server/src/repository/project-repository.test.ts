@@ -745,7 +745,6 @@ describe('Project repository loading', () => {
     expect(repository.listStates('prj_1')[0]).toMatchObject({
       boundEndpointCount: 1,
       totalEndpointCount: 2,
-      missingEndpointIds: ['ep_2'],
     });
   });
 
@@ -962,7 +961,7 @@ describe('Project repository mutations', () => {
       repo.updateState('prj_1', 'state_1', 1, { name: 'Updated' })
     )],
     ['state selection', 'missing', (repo: ProjectRepository) => (
-      repo.setStateSelection('prj_1', 1, { activeStateId: 'state_1', allowFallback: true })
+      repo.setStateSelection('prj_1', 1, { activeStateId: 'state_1' })
     )],
   ])('freshly validates referenced Body Assets before %s', async (_name, failure, mutate) => {
     const bytes = Buffer.from('referenced body');
@@ -1096,16 +1095,13 @@ describe('Project repository mutations', () => {
   });
 
   it.each([
-    ['Active only', true, false],
-    ['Base only', false, true],
-    ['Active and Base', true, true],
-    ['neither Active nor Base', false, false],
-  ])('atomically deletes an App State selected as %s', async (_name, active, base) => {
+    ['Active', true],
+    ['not Active', false],
+  ])('atomically deletes an App State selected as %s', async (_name, active) => {
     await builder.writeValid({
       project: projectRecord({
         revision: 5,
         ...(active ? { activeStateId: 'state_1' } : {}),
-        ...(base ? { baseStateId: 'state_1' } : {}),
       }),
       states: [
         stateRecord({ revision: 2 }),
@@ -1119,10 +1115,9 @@ describe('Project repository mutations', () => {
     expect(() => repository.getState('prj_1', 'state_1')).toThrow(/not found/i);
     expect(repository.getState('prj_1', 'state_other')).toMatchObject({ revision: 6 });
     expect(repository.getProject('prj_1')).toMatchObject({
-      revision: active || base ? 6 : 5,
+      revision: active ? 6 : 5,
     });
     expect(repository.getProject('prj_1')).not.toHaveProperty('activeStateId');
-    expect(repository.getProject('prj_1')).not.toHaveProperty('baseStateId');
   });
 
   it('reuses an immutable Body Asset when creating a Variant', async () => {
@@ -1239,7 +1234,7 @@ describe('Project repository mutations', () => {
     });
     await fs.promises.rm(builder.generationDirectory(), { recursive: true, force: true });
     await builder.writeValid({
-      project: projectRecord({ activeStateId: 'state_bound' }),
+      project: projectRecord({ appStateMode: 'enabled', activeStateId: 'state_bound' }),
       endpoints: [endpoint],
       states: [
         stateRecord({ id: 'state_bound', name: 'Bound', revision: 2, bindings: { ep_1: 'var_old' } }),
@@ -1517,7 +1512,7 @@ describe('Project repository mutations', () => {
     ['App State', (repo: ProjectRepository) => repo.updateState('prj_1', 'state_1', 1, { name: 'changed' }),
       (repo: ProjectRepository) => repo.getState('prj_1', 'state_1'), 'states/state_1.json'],
     ['state selection', (repo: ProjectRepository) => repo.setStateSelection(
-      'prj_1', 1, { activeStateId: 'state_1', allowFallback: true },
+      'prj_1', 1, { activeStateId: 'state_1' },
     ), (repo: ProjectRepository) => repo.getProject('prj_1'), 'project.json'],
   ])('preserves %s disk and memory state on compiler and writer failure', async (
     _name, mutate, readCurrent, relativeFile,
@@ -1901,30 +1896,30 @@ describe('Project repository mutations', () => {
     await expect(blocked).resolves.toMatchObject({ name: 'Blocked', revision: 2 });
   });
 
-  it('rejects incomplete state activation unless fallback is explicit', async () => {
+  it('activates a sparse App State and enables App State mode in one revision', async () => {
     const second = endpointRecord({
       id: 'ep_2', matcher: { method: 'GET', path: '/second' }, defaultVariantId: 'var_2',
     });
     second.variants[0] = { ...second.variants[0], id: 'var_2', endpointId: 'ep_2' };
-    await builder.writeValid({ endpoints: [endpointRecord(), second] });
-    await initialize();
-    await expect(repository.setStateSelection('prj_1', 1, {
-      activeStateId: 'state_1', allowFallback: false,
-    })).rejects.toMatchObject({
-      status: 409,
-      code: 'INCOMPLETE_STATE_COVERAGE',
-      options: {
-        details: {
-          stateId: 'state_1',
-          bound: 1,
-          total: 2,
-          missingEndpointIds: ['ep_2'],
-        },
-      },
+    await builder.writeValid({
+      project: projectRecord({ appStateMode: 'disabled' }),
+      endpoints: [endpointRecord(), second],
     });
-    await expect(repository.setStateSelection('prj_1', 1, {
-      activeStateId: 'state_1', allowFallback: true,
-    })).resolves.toMatchObject({ activeStateId: 'state_1', revision: 2 });
+    await initialize();
+
+    await expect(repository.setStateSelection('prj_1', 1, { activeStateId: 'state_1' }))
+      .resolves.toMatchObject({ activeStateId: 'state_1', appStateMode: 'enabled', revision: 2 });
+  });
+
+  it('clears the active App State without enabling App State mode', async () => {
+    await builder.writeValid({
+      project: projectRecord({ appStateMode: 'disabled', activeStateId: 'state_1' }),
+    });
+    await initialize();
+
+    const cleared = await repository.setStateSelection('prj_1', 1, { activeStateId: null });
+    expect(cleared.activeStateId).toBeUndefined();
+    expect(cleared.appStateMode).toBe('disabled');
   });
 
   it('resolves from one compiled snapshot without filesystem or Body Store access', async () => {
@@ -1954,7 +1949,7 @@ describe('Project repository mutations', () => {
       variants: [variant('var_old'), variant('var_new')],
     });
     await builder.writeValid({
-      project: projectRecord({ activeStateId: 'state_active' }),
+      project: projectRecord({ appStateMode: 'enabled', activeStateId: 'state_active' }),
       endpoints: [profile],
       states: [active, stateRecord({ bindings: { ep_1: 'var_old' } })],
     });

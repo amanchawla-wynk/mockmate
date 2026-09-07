@@ -998,7 +998,7 @@ describe('canonical MockMate application', () => {
       expect(response.status, controlPath).toBe(404);
       expect(response.body, controlPath).toMatchObject({ code: 'ENDPOINT_NOT_FOUND' });
     }
-    expect(runtime.traffic.list(projectId).entries).toHaveLength(4);
+    await vi.waitFor(() => expect(runtime.traffic.list(projectId).entries).toHaveLength(4));
     await request(app).get('/health').set('Host', 'localhost').expect(200);
   });
 
@@ -1086,11 +1086,11 @@ describe('canonical MockMate application', () => {
 
       expect(response.status).toBe(404);
       expect(JSON.parse(response.body.toString())).toMatchObject({ code: 'ENDPOINT_NOT_FOUND' });
-      let summaries = runtime.traffic.list(projectId).entries;
-      for (let attempt = 0; summaries.length === 0 && attempt < 20; attempt += 1) {
-        await new Promise(resolve => setTimeout(resolve, 5));
-        summaries = runtime.traffic.list(projectId).entries;
-      }
+      await vi.waitFor(
+        () => expect(runtime.traffic.list(projectId).entries).toHaveLength(1),
+        { timeout: 3_000 },
+      );
+      const summaries = runtime.traffic.list(projectId).entries;
       const [summary] = summaries;
       const detail = runtime.traffic.get(projectId, summary.id);
       expect(detail?.request.body).toMatchObject({ state: 'available', observedSize: first.length + second.length });

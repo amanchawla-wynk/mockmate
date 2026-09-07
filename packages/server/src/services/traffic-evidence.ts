@@ -9,14 +9,10 @@ export function currentTrafficAppState(
   const project = repository.getProject(projectId);
   const fallbackReasons: TrafficAppStateContext['fallbackReasons'] = [];
   if (project.appStateMode === 'disabled') fallbackReasons.push('app_state_mode_disabled');
-  else {
-    if (project.activeStateId === undefined) fallbackReasons.push('active_state_not_set');
-    if (project.baseStateId === undefined) fallbackReasons.push('base_state_not_set');
-  }
+  else if (project.activeStateId === undefined) fallbackReasons.push('active_state_unbound');
   return {
     mode: project.appStateMode,
     ...(project.activeStateId === undefined ? {} : { activeStateId: project.activeStateId }),
-    ...(project.baseStateId === undefined ? {} : { baseStateId: project.baseStateId }),
     fallbackReasons,
   };
 }
@@ -56,9 +52,14 @@ export function projectTrafficDecision(
         id: decision.endpoint.endpointId,
         name: decision.endpoint.endpointName,
         specificity: decision.endpoint.specificity,
-        mode: 'passthrough',
+        mode: decision.endpoint.endpointMode,
       },
-      appState,
+      appState: {
+        ...appState,
+        fallbackReasons: decision.endpoint.fallbackReasons.length === 0
+          ? appState.fallbackReasons
+          : [...decision.endpoint.fallbackReasons],
+      },
     };
   }
   return {

@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffectEvent, useLayoutEffect, useRef, useState } from 'react';
 
 import { interceptionGuidanceApi } from '../api/client';
 import type { InterceptionGuidance } from '../api/types';
@@ -25,7 +25,6 @@ export function useInterceptionGuidance(
   const owner = `${projectId ?? ''}:${originsKey}`;
   const [state, setState] = useState<GuidanceState>({ owner, loading: false });
   const ownerRef = useRef(owner);
-  ownerRef.current = owner;
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const ownedState = state.owner === owner ? state : { owner, loading: false };
 
@@ -61,14 +60,20 @@ export function useInterceptionGuidance(
       if (controllerRef.current === controller) controllerRef.current = undefined;
     }
   }, [originsKey, owner, projectId]);
+  const refreshOwner = useEffectEvent(() => {
+    void refresh();
+  });
 
   useLayoutEffect(() => {
-    void refresh();
+    ownerRef.current = owner;
+    // Owner changes intentionally begin a request and publish its loading state as one lifecycle.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshOwner();
     return () => {
       controllerRef.current?.abort();
       controllerRef.current = undefined;
     };
-  }, [refresh]);
+  }, [owner]);
 
   return {
     guidance: ownedState.guidance,

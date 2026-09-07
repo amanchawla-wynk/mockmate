@@ -511,7 +511,7 @@ describe('ImportWizard', () => {
     expect(screen.getByText(/origins and query values become Endpoint matchers only/i)).toBeVisible();
     expect(screen.getByText(/interception settings are unchanged/i)).toBeVisible();
     expect(screen.getByText(/Endpoints remain unbound in existing App States/i)).toBeVisible();
-    expect(screen.getByText(/fallback behavior remains available/i)).toBeVisible();
+    expect(screen.getByText(/keeps its Serving now Variant/i)).toBeVisible();
   });
 
   it('renders duplicate saved responses without duplicate React key warnings', async () => {

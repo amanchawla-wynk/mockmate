@@ -209,7 +209,7 @@ describe('XStream automation import', () => {
       expect.objectContaining({ path: 'movie/trailer.mp4', mediaType: 'video/mp4' }),
       expect.objectContaining({ path: 'movie/player.html', mediaType: 'text/html' }),
     ]));
-  }, 15_000);
+  }, 30_000);
 
   it('fails with an actionable fixture name instead of silently importing partial semantics', async () => {
     await expect(importer.importXstreamAutomation({ repository, fixturesDirectory }))

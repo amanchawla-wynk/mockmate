@@ -919,8 +919,8 @@ describe('App State and diagnostics routes', () => {
       id: 'state_1',
       boundEndpointCount: 1,
       totalEndpointCount: 1,
-      missingEndpointIds: [],
     })]);
+    expect(list.body[0]).not.toHaveProperty('missingEndpointIds');
     expect(list.body[0]).not.toHaveProperty('bindings');
     expect((await request(app).get('/api/admin/projects/prj_1/states/state_1')).body)
       .toEqual(stateRecord());
@@ -948,23 +948,19 @@ describe('App State and diagnostics routes', () => {
     const selected = await request(app).put('/api/admin/projects/prj_1/state-selection').send({
       expectedRevision: 1,
       activeStateId: created.body.id,
-      baseStateId: 'state_1',
-      allowFallback: false,
     });
     expect(selected.body).toMatchObject({
       activeStateId: created.body.id,
-      baseStateId: 'state_1',
+      appStateMode: 'enabled',
       revision: 2,
     });
 
     const cleared = await request(app).put('/api/admin/projects/prj_1/state-selection').send({
       expectedRevision: 2,
       activeStateId: null,
-      baseStateId: null,
-      allowFallback: true,
     });
     expect(cleared.body).not.toHaveProperty('activeStateId');
-    expect(cleared.body).not.toHaveProperty('baseStateId');
+    expect(cleared.body).toMatchObject({ appStateMode: 'enabled' });
 
     await request(app)
       .delete(`/api/admin/projects/prj_1/states/${created.body.id}`)
@@ -1196,12 +1192,13 @@ describe('request validation and stable errors', () => {
   });
 
   it.each([
-    ['activeStateId', { activeStateId: '../state' }],
-    ['baseStateId', { baseStateId: '../state' }],
-  ])('rejects an unstable state-selection %s', async (_name, selectedState) => {
+    ['an unstable activeStateId', { activeStateId: '../state' }],
+    ['a removed baseStateId', { activeStateId: 'state_1', baseStateId: 'state_1' }],
+    ['a removed allowFallback', { activeStateId: 'state_1', allowFallback: true }],
+  ])('rejects state-selection with %s', async (_name, selectedState) => {
     const response = await request(app)
       .put('/api/admin/projects/prj_1/state-selection')
-      .send({ expectedRevision: 1, allowFallback: true, ...selectedState });
+      .send({ expectedRevision: 1, ...selectedState });
     expect(response.status).toBe(422);
     expect(response.body.code).toBe('VALIDATION_FAILED');
   });
@@ -1251,7 +1248,7 @@ describe('request validation and stable errors', () => {
       { name: 'State create', method: 'post', url: '/api/admin/projects/prj_1/states', valid: { name: 'x', tags: [], bindings: {} }, invalid: { name: '', tags: [], bindings: {} } },
       { name: 'State update', method: 'put', url: '/api/admin/projects/prj_1/states/state_1', valid: { expectedRevision: 1, patch: { name: 'x' } }, invalid: { expectedRevision: -1, patch: { name: 'x' } } },
       { name: 'State delete', method: 'delete', url: '/api/admin/projects/prj_1/states/state_1', valid: { expectedRevision: 1 }, invalid: { expectedRevision: -1 } },
-      { name: 'state selection update', method: 'put', url: '/api/admin/projects/prj_1/state-selection', valid: { expectedRevision: 1, allowFallback: true }, invalid: { expectedRevision: 1, allowFallback: 'yes' } },
+      { name: 'state selection update', method: 'put', url: '/api/admin/projects/prj_1/state-selection', valid: { expectedRevision: 1, activeStateId: 'state_1' }, invalid: { expectedRevision: 1, activeStateId: 42 } },
     ];
 
     for (const mutation of mutations) {

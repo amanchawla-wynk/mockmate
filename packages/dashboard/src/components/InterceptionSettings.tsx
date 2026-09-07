@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { ApiClientError, projectsApi } from '../api/client';
 import type { Project, ProjectRuntimeSettings, RuntimeSettingsUpdateInput } from '../api/types';
@@ -28,7 +28,6 @@ export function InterceptionSettings({
   const guidance = useInterceptionGuidance(project.id, discoveredOrigins);
   const [settings, setSettings] = useState<ProjectRuntimeSettings>();
   const [hosts, setHosts] = useState('');
-  const [captureRawTraffic, setCaptureRawTraffic] = useState(false);
   const [debugProvenanceHeaders, setDebugProvenanceHeaders] = useState(false);
   const [confirmInterceptAll, setConfirmInterceptAll] = useState(false);
   const [error, setError] = useState<string>();
@@ -37,11 +36,9 @@ export function InterceptionSettings({
   const operationRef = useRef<object | undefined>(undefined);
   const owner = `${project.id}:${settings?.revision ?? 'loading'}`;
   const ownerRef = useRef(owner);
-  ownerRef.current = owner;
   const draftPatterns = patterns(hosts);
   const dirty = settings !== undefined && (
     !samePatterns(draftPatterns, settings.interceptHosts)
-    || captureRawTraffic !== settings.captureRawTraffic
     || debugProvenanceHeaders !== settings.debugProvenanceHeaders
   );
   const guidanceStale = settings !== undefined && guidance.guidance !== undefined
@@ -49,10 +46,13 @@ export function InterceptionSettings({
   const guidanceUnavailable = guidance.loading || guidance.guidance === undefined || guidance.error !== undefined;
   const dirtyKey = `interception-settings:${project.id}:${settings?.revision ?? 0}`;
 
+  useLayoutEffect(() => {
+    ownerRef.current = owner;
+  }, [owner]);
+
   const adopt = (value: ProjectRuntimeSettings) => {
     setSettings(value);
     setHosts(value.interceptHosts.join('\n'));
-    setCaptureRawTraffic(value.captureRawTraffic);
     setDebugProvenanceHeaders(value.debugProvenanceHeaders);
     setConfirmInterceptAll(false);
   };
@@ -93,7 +93,8 @@ export function InterceptionSettings({
     if (!settings || !dirty || guidanceStale || guidanceUnavailable || operationRef.current) return;
     const input: RuntimeSettingsUpdateInput = {
       interceptHosts: draftPatterns,
-      captureRawTraffic,
+      // Exact Traffic body retention is always on; persist true for API compatibility.
+      captureRawTraffic: true,
       debugProvenanceHeaders,
       expectedRevision: settings.revision,
       ...(draftPatterns.includes('*') ? { confirmInterceptAll: true } : {}),
@@ -152,6 +153,7 @@ export function InterceptionSettings({
       <div>
         <h3 className="text-base font-semibold text-gray-900">Interception settings</h3>
         <p className="mt-1 text-xs text-gray-500">Endpoint, Import, and Mock This flows never change this allowlist automatically.</p>
+        <p className="mt-1 text-xs text-gray-500">Exact Traffic bodies are always retained (subject to ephemeral LRU eviction).</p>
       </div>
       {error ? <p role="alert" className="rounded bg-red-50 p-2 text-sm text-red-700">{error}</p> : null}
       {staleRevision !== undefined || guidanceStale ? (
@@ -181,10 +183,6 @@ export function InterceptionSettings({
       <label className="block text-sm font-medium text-gray-700">
         Intercept host patterns
         <textarea aria-label="Intercept host patterns" value={hosts} onChange={event => setHosts(event.target.value)} className="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono" rows={5} />
-      </label>
-      <label className="flex items-center justify-between text-sm font-medium text-gray-700">
-        Capture exact Traffic bodies
-        <input aria-label="Capture raw traffic" type="checkbox" checked={captureRawTraffic} onChange={event => setCaptureRawTraffic(event.target.checked)} />
       </label>
       <label className="flex items-center justify-between text-sm font-medium text-gray-700">
         Debug provenance headers

@@ -236,28 +236,33 @@ function blockedCaptureWriteFileSystem(): {
 }
 
 describe('capture sidecar admission and bounded observation', () => {
-  it('returns from observe synchronously while persistence is stalled and saturates at 1 MiB + 1', async () => {
+  it('returns from observe synchronously while persistence is stalled and saturates at sidecarQueueBytes + 1', async () => {
     const blocked = blockedCaptureOpenFileSystem();
-    const { sidecar, budgets } = await createHarness({ fileSystem: blocked.fileSystem });
+    const sidecarQueueBytes = 64 * 1024;
+    const previewBytes = 16 * 1024;
+    const { sidecar, budgets } = await createHarness({
+      fileSystem: blocked.fileSystem,
+      limits: { sidecarQueueBytes, previewBytes, projectQueuedBytes: 256 * 1024, processQueuedBytes: 256 * 1024 },
+    });
     const capture = sidecar();
 
-    expect(capture.observe(Buffer.alloc(TRAFFIC_LIMITS.sidecarQueueBytes, 0x61)))
+    expect(capture.observe(Buffer.alloc(sidecarQueueBytes, 0x61)))
       .toBeUndefined();
     await blocked.started;
-    expect(budgets.snapshot().queuedBytes).toBe(TRAFFIC_LIMITS.sidecarQueueBytes);
+    expect(budgets.snapshot().queuedBytes).toBe(sidecarQueueBytes);
     expect(capture.observe(Buffer.of(0x62))).toBeUndefined();
     expect(budgets.snapshot().queuedBytes).toBe(0);
 
     const completion = capture.complete();
     blocked.release();
     await expect(completion).resolves.toMatchObject({
-      preview: 'a'.repeat(TRAFFIC_LIMITS.previewBytes),
+      preview: 'a'.repeat(previewBytes),
       previewEncoding: 'utf8',
-      observedSize: TRAFFIC_LIMITS.sidecarQueueBytes + 1,
+      observedSize: sidecarQueueBytes + 1,
       descriptor: {
         state: 'unavailable',
         reason: 'queue_saturated',
-        observedSize: TRAFFIC_LIMITS.sidecarQueueBytes + 1,
+        observedSize: sidecarQueueBytes + 1,
       },
     });
     expect(budgets.snapshot()).toMatchObject({
@@ -445,20 +450,22 @@ describe('capture sidecar exact boundaries', () => {
     });
   });
 
-  it('accepts exactly 50 MiB and truncates at 50 MiB + 1', async () => {
-    const { sidecar, budgets } = await createHarness();
+  it('accepts exactly bodyBytes and truncates at bodyBytes + 1', async () => {
+    // Production bodyBytes is effectively unbounded; inject a small ceiling to
+    // keep truncate-boundary coverage without allocating MAX_SAFE_INTEGER.
+    const bodyBytes = 8 * 1024;
+    const { sidecar, budgets } = await createHarness({
+      limits: { bodyBytes, sidecarQueueBytes: bodyBytes },
+    });
     const exact = sidecar({ trafficId: 'traffic_exact', generation: 'generation_exact' });
-    const chunk = Buffer.alloc(TRAFFIC_LIMITS.sidecarQueueBytes, 0x61);
-    for (let offset = 0; offset < TRAFFIC_LIMITS.bodyBytes; offset += chunk.length) {
-      exact.observe(chunk.subarray(0, Math.min(chunk.length, TRAFFIC_LIMITS.bodyBytes - offset)));
-      await waitForQueueDrain(budgets);
-    }
+    exact.observe(Buffer.alloc(bodyBytes, 0x61));
+    await waitForQueueDrain(budgets);
     await expect(exact.complete()).resolves.toMatchObject({
-      observedSize: TRAFFIC_LIMITS.bodyBytes,
+      observedSize: bodyBytes,
       descriptor: {
         state: 'available',
-        observedSize: TRAFFIC_LIMITS.bodyBytes,
-        retainedSize: TRAFFIC_LIMITS.bodyBytes,
+        observedSize: bodyBytes,
+        retainedSize: bodyBytes,
       },
     });
 
@@ -466,16 +473,16 @@ describe('capture sidecar exact boundaries', () => {
       trafficId: 'traffic_oversized',
       generation: 'generation_oversized',
     });
-    oversized.observe(Buffer.alloc(TRAFFIC_LIMITS.bodyBytes + 1));
+    oversized.observe(Buffer.alloc(bodyBytes + 1));
     await expect(oversized.complete()).resolves.toMatchObject({
-      observedSize: TRAFFIC_LIMITS.bodyBytes + 1,
+      observedSize: bodyBytes + 1,
       descriptor: {
         state: 'truncated',
         reason: 'body_limit_exceeded',
-        observedSize: TRAFFIC_LIMITS.bodyBytes + 1,
+        observedSize: bodyBytes + 1,
       },
     });
-  }, 20_000);
+  });
 
   it('keeps disabled capture unavailable for empty bodies while preserving preview metadata', async () => {
     const { sidecar, budgets } = await createHarness({ enabled: false });

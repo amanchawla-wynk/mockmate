@@ -68,15 +68,18 @@ export interface TrafficLimits {
 
 export const TRAFFIC_LIMITS: Readonly<TrafficLimits> = Object.freeze({
   rowsPerProject: 500,
-  previewBytes: 16 * 1024,
-  bodyBytes: 50 * 1024 * 1024,
-  sidecarQueueBytes: 1 * 1024 * 1024,
+  /** Bounded detail-JSON preview; exact bodies use the body route. */
+  previewBytes: 1 * 1024 * 1024,
+  /** Effectively unbounded per-body retention (schema-safe ceiling). */
+  bodyBytes: Number.MAX_SAFE_INTEGER - 1,
+  sidecarQueueBytes: 256 * 1024 * 1024,
   projectActiveSidecars: 32,
-  projectQueuedBytes: 32 * 1024 * 1024,
+  projectQueuedBytes: 512 * 1024 * 1024,
   processActiveSidecars: 128,
-  processQueuedBytes: 128 * 1024 * 1024,
+  processQueuedBytes: 1 * 1024 ** 3,
   projectTemporaryBytes: 1 * 1024 ** 3,
   processTemporaryBytes: 2 * 1024 ** 3,
+  /** Retained-byte LRU remains the memory backpressure valve. */
   projectRetainedBytes: 1 * 1024 ** 3,
   processRetainedBytes: 4 * 1024 ** 3,
 });
@@ -210,15 +213,11 @@ export interface TrafficEndpointEvidence {
 export interface TrafficAppStateContext {
   mode: 'enabled' | 'disabled';
   activeStateId?: string;
-  baseStateId?: string;
   selectedStateId?: string;
-  resolutionSource?: 'project_active_state' | 'project_base_state' | 'endpoint_default';
+  resolutionSource?: 'project_active_state' | 'endpoint_default';
   fallbackReasons: Array<
     | 'app_state_mode_disabled'
-    | 'active_state_not_set'
     | 'active_state_unbound'
-    | 'base_state_not_set'
-    | 'base_state_unbound'
   >;
 }
 

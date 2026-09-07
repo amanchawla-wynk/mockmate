@@ -57,7 +57,7 @@ function pane(
 describe('TrafficBodyPane', () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it('inspector mode shows a spinner without the 16 KiB preview chrome', async () => {
+  it('inspector mode shows a spinner without the bounded preview while exact loads', async () => {
     const loading = deferred<Response>();
     vi.spyOn(trafficApi, 'body').mockReturnValue(loading.promise);
     render(pane());
@@ -220,10 +220,10 @@ describe('TrafficBodyPane', () => {
   });
 
   it.each([
-    ['unavailable', 'Exact body was not retained. The bounded preview is still available.'],
-    ['truncated', 'Exact body exceeded the 50 MiB capture limit and cannot be promoted.'],
-    ['evicted', 'Exact body was evicted from the ephemeral cache and cannot be reloaded.'],
-  ] as const)('shows distinct %s recovery without an exact load', async (state, copy) => {
+    ['unavailable', 'Exact body was not retained. Showing bounded preview.'],
+    ['truncated', 'Exact body exceeded the capture limit and cannot be promoted. Showing bounded preview.'],
+    ['evicted', 'Exact body was evicted from the ephemeral cache and cannot be reloaded. Showing bounded preview.'],
+  ] as const)('shows distinct %s recovery with inspector preview and without an exact load', async (state, copy) => {
     const body = vi.spyOn(trafficApi, 'body');
     const blocked: TrafficBodyDescriptor = state === 'unavailable'
       ? { side: 'request', state, observedSize: 1, reason: 'body_unobservable' }
@@ -237,6 +237,7 @@ describe('TrafficBodyPane', () => {
     render(pane(createBodyDocumentCache(), blocked));
 
     expect(screen.getByText(copy)).toBeVisible();
+    expect(screen.getByText('hello')).toBeVisible();
     expect(body).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument());
   });

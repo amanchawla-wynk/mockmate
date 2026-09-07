@@ -321,7 +321,7 @@ describe('traffic capture integration harness', () => {
       activeProjectId: project.id,
     }).expect(200);
 
-    await harness.request.post(`/api/admin/projects/${project.id}/endpoints`).send({
+    const pageOneEndpoint = (await harness.request.post(`/api/admin/projects/${project.id}/endpoints`).send({
       name: 'Page one',
       baseUrl: httpsUpstream.origin,
       mode: 'mock',
@@ -330,7 +330,7 @@ describe('traffic capture integration harness', () => {
       } },
       variants: [{ name: 'Default', status: 200, responseHeaders: {}, delayMs: 0 }],
       defaultVariantIndex: 0,
-    }).expect(201);
+    }).expect(201)).body as { id: string; variants: Array<{ id: string }> };
     await harness.request.post(`/api/admin/projects/${project.id}/endpoints`).send({
       name: 'Page two',
       baseUrl: httpsUpstream.origin,
@@ -365,14 +365,18 @@ describe('traffic capture integration harness', () => {
     }).expect(201);
     const acceptanceState = (await harness.request
       .post(`/api/admin/projects/${project.id}/states`)
-      .send({ name: 'Acceptance state', tags: [], bindings: {} })
+      .send({
+        name: 'Acceptance state',
+        tags: [],
+        // Only bound Endpoints are mocked while an App State is active.
+        bindings: { [pageOneEndpoint.id]: pageOneEndpoint.variants[0].id },
+      })
       .expect(201)).body as { id: string };
     const currentProject = (await harness.request
       .get(`/api/admin/projects/${project.id}`).expect(200)).body as { revision: number };
     await harness.request.put(`/api/admin/projects/${project.id}/state-selection`).send({
       expectedRevision: currentProject.revision,
       activeStateId: acceptanceState.id,
-      allowFallback: true,
     }).expect(200);
 
     const proxy = await harness.proxy();
@@ -488,8 +492,9 @@ describe('traffic capture integration harness', () => {
       .expect(response => expect(response.body.appState).toMatchObject({
         mode: 'enabled',
         activeStateId: acceptanceState.id,
-        resolutionSource: 'endpoint_default',
-        fallbackReasons: ['active_state_unbound', 'base_state_not_set'],
+        selectedStateId: acceptanceState.id,
+        resolutionSource: 'project_active_state',
+        fallbackReasons: [],
       }));
 
     let observeFirstByte!: (at: number) => void;
@@ -729,22 +734,25 @@ describe('traffic capture integration harness', () => {
       const detail = (await harness.request
         .get(`/api/admin/projects/${project.id}/traffic/${blocked.id}`)
         .expect(200)).body;
-      expect(detail.promotion).toEqual({
-        state: 'blocked',
-        reason: blocked.path === '/truncated' ? 'body_truncated' : 'body_unavailable',
-      });
-      expect(detail.response.body).toMatchObject(blocked.path === '/truncated'
-        ? { state: 'truncated', reason: 'body_limit_exceeded', observedSize: 64 * 1_024 + 1 }
-        : { state: 'unavailable', reason: 'raw_capture_disabled' });
-      await harness.request
-        .post(`/api/admin/projects/${project.id}/traffic/${blocked.id}/mock`)
-        .send({
-          expectedTrafficGeneration: detail.generation,
-          expectedResponseIdentity: '0'.repeat(64),
-          endpoint: { action: 'create' },
-          state: { action: 'unbound' },
-        })
-        .expect(409);
+      if (blocked.path === '/truncated') {
+        expect(detail.promotion).toEqual({ state: 'blocked', reason: 'body_truncated' });
+        expect(detail.response.body).toMatchObject({
+          state: 'truncated', reason: 'body_limit_exceeded', observedSize: 64 * 1_024 + 1,
+        });
+        await harness.request
+          .post(`/api/admin/projects/${project.id}/traffic/${blocked.id}/mock`)
+          .send({
+            expectedTrafficGeneration: detail.generation,
+            expectedResponseIdentity: '0'.repeat(64),
+            endpoint: { action: 'create' },
+            state: { action: 'unbound' },
+          })
+          .expect(409);
+      } else {
+        // captureRawTraffic=false must not disable exact retention.
+        expect(detail.response.body.state).toBe('available');
+        expect(detail.promotion.state).toBe('eligible');
+      }
     }
     const endpointPaths = ((await harness.request
       .get(`/api/admin/projects/${project.id}/endpoints`).expect(200)).body as

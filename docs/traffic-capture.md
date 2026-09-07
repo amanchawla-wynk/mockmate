@@ -26,9 +26,10 @@ Passthrough Endpoint, or a selected request without a matching Endpoint, forward
 to the incoming original origin. Direct MockMate requests require a trusted
 backend `Host` authority and never perform passthrough.
 
-App State mode is reversible. Disabled mode retains active/base State IDs and
-dormant bindings but excludes App State resolution. Coverage counts include only
-Mock Endpoints that have a fallback Variant.
+App State mode is reversible. Disabled mode retains the active State ID and dormant
+bindings while every mock Endpoint serves its Serving now Variant. Enabled mode
+mocks only active-state bindings; an unbound mock Endpoint passes through upstream.
+Coverage counts include only mock Endpoints that have a Serving now Variant.
 
 ## Traffic Evidence
 
@@ -37,10 +38,12 @@ provenance, App State resolution, response metadata, and bounded body previews.
 Transport failures can produce ephemeral `500` rows even when no durable
 upstream response exists.
 
-Body previews are capped at `16 KiB`. Exact body retention is optional, off by
-default, and bounded by a `50 MiB` Project cache. Size and digest describe entity
-bytes after transport framing and before content decoding. That encoded identity
-is what Download and Mock This promotion use.
+Exact Traffic body retention is always on. Detail-JSON body previews are capped
+at `1 MiB`; exact bodies are retained without a per-body size ceiling and are
+bounded only by the ephemeral retained-byte LRU (`1 GiB` per Project /
+`4 GiB` process-wide). Size and digest describe entity bytes after transport
+framing and before content decoding. That encoded identity is what Download and
+Mock This promotion use.
 
 For display, MockMate stream-decodes `gzip`, `deflate`, and `br` (including
 comma-separated chains) into the bounded preview and into
@@ -56,11 +59,11 @@ are pretty-printed when the decoded UTF-8 payload parses as JSON.
 
 ## Mock This
 
-`Mock This` is a reviewed promotion from an accepted Traffic snapshot. The
-dialog shows captured origin, method, path, query occurrences, redacted request
-headers, exact response status and normalized repeated headers, media type,
-encoding, size, digest, Endpoint/Variant action, mode change, State choice, and
-dependency revisions.
+`Mock This` promotes an accepted Traffic snapshot into Endpoint/Variant state.
+The dashboard one-click flow uses the reviewed create/reuse endpoint choice and
+always leaves the promoted mock unbound. Review surfaces still describe captured
+origin, method, path, query, redacted request headers, exact response status and
+headers, media type, encoding, size, and digest.
 
 Masked display text never forms a mutation payload. Hidden matcher values and
 exact response values remain server-owned in the trusted Traffic snapshot; the
@@ -70,11 +73,12 @@ receipt reconciliation, and a failed refresh never automatically repeats POST.
 
 ## Interception Settings
 
-The sole settings form saves `interceptHosts`, `captureRawTraffic`, and
-`debugProvenanceHeaders` together with one expected revision. Guidance combines
-persisted Endpoint origins with ephemeral Import origins and suggests exact
-hostnames only. Operators may enter wildcard patterns manually. Catch-all `*`
-requires explicit confirmation.
+The settings form saves `interceptHosts` and `debugProvenanceHeaders` with one
+expected revision (`captureRawTraffic` remains in the API for compatibility and
+is always persisted as enabled). Exact Traffic body retention does not depend on
+an operator toggle. Guidance combines persisted Endpoint origins with ephemeral
+Import origins and suggests exact hostnames only. Operators may enter wildcard
+patterns manually. Catch-all `*` requires explicit confirmation.
 
 Endpoint creation, Import, Traffic capture, promotion, and guidance reads never
 change interception settings. Import suggestions exist only after successful

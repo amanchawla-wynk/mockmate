@@ -23,7 +23,6 @@ export interface Project {
   description?: string;
   appStateMode: AppStateMode;
   activeStateId?: string;
-  baseStateId?: string;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -183,7 +182,6 @@ export interface AppStateSummary extends Pick<
 > {
   boundEndpointCount: number;
   totalEndpointCount: number;
-  missingEndpointIds: string[];
 }
 
 export interface BodyAsset {
@@ -238,17 +236,12 @@ export type CreateAppStateInput = Omit<AppState, 'schemaVersion' | 'id' | 'proje
 
 export interface StateSelectionInput {
   activeStateId?: string | null;
-  baseStateId?: string | null;
-  allowFallback: boolean;
 }
 
-export type ResolutionSource = 'project_active_state' | 'project_base_state' | 'endpoint_default';
+export type ResolutionSource = 'project_active_state' | 'endpoint_default';
 export type FallbackReason =
   | 'app_state_mode_disabled'
-  | 'active_state_not_set'
-  | 'active_state_unbound'
-  | 'base_state_not_set'
-  | 'base_state_unbound';
+  | 'active_state_unbound';
 
 export type TrafficBodyDescriptor =
   | {
@@ -311,7 +304,6 @@ export interface TrafficEndpointEvidence {
 export interface TrafficAppStateContext {
   mode: AppStateMode;
   activeStateId?: string;
-  baseStateId?: string;
   selectedStateId?: string;
   resolutionSource?: ResolutionSource;
   fallbackReasons: FallbackReason[];

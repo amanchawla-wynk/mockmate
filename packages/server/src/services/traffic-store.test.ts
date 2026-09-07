@@ -55,7 +55,6 @@ function detail(
     appState: {
       mode: 'enabled',
       activeStateId: 'state_active',
-      baseStateId: 'state_base',
       fallbackReasons: [],
     },
     captureState: 'complete',

@@ -16,13 +16,13 @@ export interface TrafficBodyPaneProps {
   descriptor: TrafficBodyDescriptor;
   preview?: TrafficPreview;
   cache: BodyDocumentCache;
-  /** inspector: exact/decoded only with spinner; legacy: also shows 16 KiB preview */
+  /** inspector: exact/decoded with spinner; falls back to preview when blocked. legacy: always shows preview */
   mode?: 'inspector' | 'legacy';
 }
 
 const bodyStateCopy = {
-  unavailable: 'Exact body was not retained. The bounded preview is still available.',
-  truncated: 'Exact body exceeded the 50 MiB capture limit and cannot be promoted.',
+  unavailable: 'Exact body was not retained.',
+  truncated: 'Exact body exceeded the capture limit and cannot be promoted.',
   evicted: 'Exact body was evicted from the ephemeral cache and cannot be reloaded.',
 } as const;
 
@@ -50,7 +50,7 @@ function Preview({
   return (
     <div className="space-y-1">
       {preview.truncated ? <p className="text-xs text-orange-700">Preview truncated.</p> : null}
-      <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-gray-800">
+      <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-gray-800">
         {formatTrafficPreviewText(preview, mediaType)}
       </pre>
     </div>
@@ -221,12 +221,17 @@ export function TrafficBodyPane({
   const presentation = classifyTrafficBody({ descriptor });
   const mediaType = descriptor.state === 'available' ? descriptor.mediaType : undefined;
   const inspector = mode === 'inspector';
+  const showExactText = presentation.kind === 'text' && descriptor.state === 'available';
+  const showPreview = !inspector || presentation.kind === 'blocked';
   return (
     <div className="space-y-3">
-      {!inspector ? <Preview preview={preview} mediaType={mediaType} /> : null}
+      {showPreview ? <Preview preview={preview} mediaType={mediaType} /> : null}
       {presentation.kind === 'blocked' ? (
         <p className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
           {bodyStateCopy[presentation.reason]}
+          {preview !== undefined && preview.value.length > 0
+            ? ' Showing bounded preview.'
+            : ''}
         </p>
       ) : null}
       {presentation.kind === 'binary' ? (
@@ -239,7 +244,7 @@ export function TrafficBodyPane({
           <Download projectId={projectId} trafficId={trafficId} side={side} />
         </div>
       ) : null}
-      {presentation.kind === 'text' && descriptor.state === 'available' ? (
+      {showExactText ? (
         <TrafficTextDocument
           key={`${projectId}:${trafficId}:${side}:${descriptor.sha256}:${presentation.decoded ? 'decoded' : 'raw'}`}
           projectId={projectId}

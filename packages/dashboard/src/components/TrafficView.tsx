@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -159,7 +160,7 @@ function TrafficOverview({
   const shortDecision = detail.decision.replace(/_/g, ' ');
 
   return (
-    <div className="sticky top-0 z-10 border-b border-gray-200 bg-white px-3 py-2">
+    <div className="shrink-0 border-b border-gray-200 bg-white px-3 py-2">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
@@ -228,21 +229,36 @@ export function TrafficView({
     controller: AbortController;
   } | undefined>(undefined);
   const promoteGeneration = useRef(0);
+  const resetProjectState = useEffectEvent(() => {
+    setSelectedId(undefined);
+    setPromoting(false);
+    setPromoteError(undefined);
+    setPromoteSuccess(undefined);
+  });
+  const clearSelection = useEffectEvent(() => {
+    setSelectedId(undefined);
+  });
+  const resetSelectionState = useEffectEvent(() => {
+    setRequestTab('headers');
+    setResponseTab('headers');
+    setPromoteError(undefined);
+    setPromoteSuccess(undefined);
+    setPromoting(false);
+  });
 
   useLayoutEffect(() => {
     if (owner.current !== projectId) {
       owner.current = projectId;
-      setSelectedId(undefined);
       promoteGeneration.current += 1;
       promoteOp.current?.controller.abort();
       promoteOp.current = undefined;
-      setPromoting(false);
-      setPromoteError(undefined);
-      setPromoteSuccess(undefined);
+      resetProjectState();
       return;
     }
     if (selectedId !== undefined && !traffic.some(entry => entry.id === selectedId)) {
-      setSelectedId(undefined);
+      // Removed traffic must permanently clear selection rather than reselect if the ID reappears.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      clearSelection();
     }
   }, [projectId, selectedId, traffic]);
 
@@ -257,14 +273,12 @@ export function TrafficView({
   }, []);
 
   useLayoutEffect(() => {
-    setRequestTab('headers');
-    setResponseTab('headers');
-    setPromoteError(undefined);
-    setPromoteSuccess(undefined);
     promoteGeneration.current += 1;
     promoteOp.current?.controller.abort();
     promoteOp.current = undefined;
-    setPromoting(false);
+    // Selection owns transient tabs and promotion feedback, which reset together on identity changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    resetSelectionState();
   }, [selectedId]);
 
   useLayoutEffect(() => () => {
@@ -288,11 +302,16 @@ export function TrafficView({
   const showRequestQuery = detail !== null && detail.request.query.length > 0;
   const showRequestBody = detail !== null && hasBodyTab(detail.request.body, detail.request.preview);
   const showResponseBody = detail !== null && hasBodyTab(detail.response.body, detail.response.preview);
-
-  useLayoutEffect(() => {
+  const normalizeTabs = useEffectEvent(() => {
     if (requestTab === 'query' && !showRequestQuery) setRequestTab('headers');
     if (requestTab === 'body' && !showRequestBody) setRequestTab('headers');
     if (responseTab === 'body' && !showResponseBody) setResponseTab('headers');
+  });
+
+  useLayoutEffect(() => {
+    // A disappearing payload must move the visible tab back to an available panel immediately.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    normalizeTabs();
   }, [requestTab, responseTab, showRequestBody, showRequestQuery, showResponseBody]);
 
   const onResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -423,7 +442,7 @@ export function TrafficView({
         />
 
         <div
-          className="min-h-0 flex-shrink-0 overflow-auto bg-white"
+          className="flex min-h-0 flex-shrink-0 flex-col overflow-hidden bg-white"
           style={{ height: detailHeight, minHeight: DETAIL_MIN_PX }}
         >
           {!selected ? (
@@ -435,7 +454,7 @@ export function TrafficView({
             </p>
           ) : null}
           {detail ? (
-            <div className="min-h-full">
+            <>
               <TrafficOverview
                 detail={detail}
                 promoting={promoting}
@@ -443,8 +462,8 @@ export function TrafficView({
                 promoteSuccess={promoteSuccess}
                 onMockThis={() => { void onMockThis(); }}
               />
-              <div className="grid min-h-0 grid-cols-1 divide-y divide-gray-200 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-                <section className="min-w-0 p-3">
+              <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-gray-200 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+                <section className="min-h-0 min-w-0 overflow-auto p-3">
                   <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                     Request
                   </h3>
@@ -490,7 +509,7 @@ export function TrafficView({
                     />
                   ) : null}
                 </section>
-                <section className="min-w-0 p-3">
+                <section className="min-h-0 min-w-0 overflow-auto p-3">
                   <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                     Response
                   </h3>
@@ -524,7 +543,7 @@ export function TrafficView({
                   ) : null}
                 </section>
               </div>
-            </div>
+            </>
           ) : null}
         </div>
       </div>

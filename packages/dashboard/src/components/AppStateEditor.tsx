@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { statesApi } from '../api/client';
 import type { AppState, AppStatePatch, EndpointDetail, Project } from '../api/types';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -28,6 +28,9 @@ export function AppStateEditor({
   const [description, setDescription] = useState(state.description ?? '');
   const [expectedUi, setExpectedUi] = useState(state.expectedUi ?? '');
   const [bindings, setBindings] = useState({ ...state.bindings });
+  const [bindingPickerOpen, setBindingPickerOpen] = useState(false);
+  const [pickerEndpointId, setPickerEndpointId] = useState('');
+  const [pickerVariantId, setPickerVariantId] = useState('');
   const [error, setError] = useState<string>();
   const [serverRevision, setServerRevision] = useState<number>();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -40,25 +43,30 @@ export function AppStateEditor({
     || expectedUi !== (state.expectedUi ?? '')
     || JSON.stringify(bindings) !== JSON.stringify(state.bindings);
   const active = project.activeStateId === state.id;
-  const base = project.baseStateId === state.id;
-  const selectionLabel = active && base
-    ? 'Active and Base'
-    : active
-      ? 'Active'
-      : base
-        ? 'Base'
-        : 'Neither Active nor Base';
+  const boundEndpoints = Object.keys(bindings)
+    .map(endpointId => endpoints.find(endpoint => endpoint.id === endpointId))
+    .filter((endpoint): endpoint is EndpointDetail => endpoint !== undefined);
+  const unboundMockEndpoints = endpoints.filter(endpoint => (
+    endpoint.mode === 'mock' && bindings[endpoint.id] === undefined
+  ));
+  const pickerEndpoint = unboundMockEndpoints.find(endpoint => endpoint.id === pickerEndpointId);
 
   const discardDraft = () => {
     setName(state.name);
     setDescription(state.description ?? '');
     setExpectedUi(state.expectedUi ?? '');
     setBindings({ ...state.bindings });
+    setBindingPickerOpen(false);
+    setPickerEndpointId('');
+    setPickerVariantId('');
     setError(undefined);
     setServerRevision(undefined);
   };
+  const reportDirty = useEffectEvent(() => {
+    onDirtyChange?.(key, dirty, discardDraft);
+  });
 
-  useEffect(() => onDirtyChange?.(key, dirty, discardDraft), [dirty, key, onDirtyChange]);
+  useEffect(() => reportDirty(), [dirty, key]);
 
   const save = async () => {
     const patch: AppStatePatch = {};
@@ -172,25 +180,106 @@ export function AppStateEditor({
       </label>
       <fieldset className="space-y-3 border-t border-gray-200 pt-4">
         <legend className="text-sm font-semibold text-gray-800">Endpoint bindings</legend>
-        {endpoints.map(endpoint => (
-          <label key={endpoint.id} className="grid items-center gap-2 text-sm text-gray-700 md:grid-cols-[1fr_14rem]">
-            {endpoint.name} variant
+        {boundEndpoints.length === 0 ? (
+          <p className="text-sm text-gray-500">No Endpoints are bound. When active, mock Endpoints pass through upstream.</p>
+        ) : null}
+        {boundEndpoints.map(endpoint => (
+          <div key={endpoint.id} className="grid items-center gap-2 text-sm text-gray-700 md:grid-cols-[1fr_14rem_auto]">
+            <span>{endpoint.name}</span>
             <select
               aria-label={`${endpoint.name} variant`}
-              value={bindings[endpoint.id] ?? ''}
-              onChange={event => setBindings(current => {
-                const next = { ...current };
-                if (event.target.value) next[endpoint.id] = event.target.value;
-                else delete next[endpoint.id];
-                return next;
-              })}
+              value={bindings[endpoint.id]}
+              onChange={event => setBindings(current => ({ ...current, [endpoint.id]: event.target.value }))}
               className="rounded border border-gray-300 px-3 py-2"
             >
-              <option value="">Use fallback</option>
               {endpoint.variants.map(variant => <option key={variant.id} value={variant.id}>{variant.name}</option>)}
             </select>
-          </label>
+            <button
+              type="button"
+              aria-label={`Remove ${endpoint.name} binding`}
+              onClick={() => setBindings(current => {
+                const next = { ...current };
+                delete next[endpoint.id];
+                return next;
+              })}
+              className="rounded px-2 py-1 text-xs text-red-700"
+            >
+              Remove
+            </button>
+          </div>
         ))}
+        {!bindingPickerOpen ? (
+          <button
+            type="button"
+            disabled={unboundMockEndpoints.length === 0}
+            onClick={() => setBindingPickerOpen(true)}
+            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 disabled:opacity-50"
+          >
+            Add Endpoint binding
+          </button>
+        ) : (
+          <div className="space-y-3 rounded border border-gray-200 bg-gray-50 p-3">
+            <label className="block text-sm font-medium text-gray-700">
+              Mock Endpoint
+              <select
+                aria-label="Mock Endpoint"
+                value={pickerEndpointId}
+                onChange={event => {
+                  setPickerEndpointId(event.target.value);
+                  setPickerVariantId('');
+                }}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2"
+              >
+                <option value="">Choose an Endpoint</option>
+                {unboundMockEndpoints.map(endpoint => (
+                  <option key={endpoint.id} value={endpoint.id}>{endpoint.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Variant
+              <select
+                aria-label="Binding Variant"
+                value={pickerVariantId}
+                disabled={!pickerEndpoint}
+                onChange={event => setPickerVariantId(event.target.value)}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 disabled:opacity-50"
+              >
+                <option value="">Choose a Variant</option>
+                {pickerEndpoint?.variants.map(variant => (
+                  <option key={variant.id} value={variant.id}>{variant.name}</option>
+                ))}
+              </select>
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={!pickerEndpoint || !pickerVariantId}
+                onClick={() => {
+                  if (!pickerEndpoint || !pickerVariantId) return;
+                  setBindings(current => ({ ...current, [pickerEndpoint.id]: pickerVariantId }));
+                  setBindingPickerOpen(false);
+                  setPickerEndpointId('');
+                  setPickerVariantId('');
+                }}
+                className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              >
+                Add binding
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBindingPickerOpen(false);
+                  setPickerEndpointId('');
+                  setPickerVariantId('');
+                }}
+                className="rounded border border-gray-300 px-3 py-1.5 text-xs"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </fieldset>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button type="button" onClick={() => void save()} disabled={!dirty} className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Save App State</button>
@@ -200,7 +289,7 @@ export function AppStateEditor({
       <ConfirmDialog
         isOpen={deleteDialogOpen}
         title="Delete App State"
-        message={`Selection: ${selectionLabel}.\n\nExternal iOS/Android references cannot be discovered. Verify automation and app integrations before deleting.`}
+        message={`${active ? 'This is the active App State.' : 'This App State is not active.'}\n\nExternal iOS/Android references cannot be discovered. Verify automation and app integrations before deleting.`}
         confirmLabel="Delete App State"
         variant="danger"
         loading={deleting}

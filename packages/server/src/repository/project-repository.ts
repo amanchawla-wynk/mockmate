@@ -1555,7 +1555,7 @@ export function createProjectRepository(
             id: projectId,
             name: input.name,
             ...(input.description === undefined ? {} : { description: input.description }),
-            appStateMode: 'enabled',
+            appStateMode: 'disabled',
             revision: 0,
             createdAt: now,
             updatedAt: now,
@@ -1564,7 +1564,7 @@ export function createProjectRepository(
             schemaVersion: 4,
             projectId,
             interceptHosts: [],
-            captureRawTraffic: false,
+            captureRawTraffic: true,
             debugProvenanceHeaders: false,
             revision: 0,
           },
@@ -2321,7 +2321,6 @@ export function createProjectRepository(
             revision: state.revision,
             boundEndpointCount: coverage.bound,
             totalEndpointCount: coverage.total,
-            missingEndpointIds: coverage.missingEndpointIds,
           };
         })
         .map(clone);
@@ -2373,16 +2372,8 @@ export function createProjectRepository(
         if (state.revision !== expectedRevision) throw revisionConflict(expectedRevision, state.revision);
         const candidate = cloneSnapshot(current);
         (candidate.states as Map<string, AppState>).delete(stateId);
-        let selectionChanged = false;
         if (candidate.project.activeStateId === stateId) {
           delete candidate.project.activeStateId;
-          selectionChanged = true;
-        }
-        if (candidate.project.baseStateId === stateId) {
-          delete candidate.project.baseStateId;
-          selectionChanged = true;
-        }
-        if (selectionChanged) {
           candidate.project.revision += 1;
           candidate.project.updatedAt = new Date().toISOString();
         }
@@ -2396,20 +2387,14 @@ export function createProjectRepository(
         if (current.project.revision !== expectedRevision) {
           throw revisionConflict(expectedRevision, current.project.revision);
         }
-        for (const stateId of [input.activeStateId, input.baseStateId]) {
-          if (stateId !== undefined && stateId !== null) {
-            requireState(current, stateId);
-            const coverage = calculateStateCoverage(compiled.get(projectId)!, stateId);
-            if (!input.allowFallback && coverage.missingEndpointIds.length > 0) {
-              throw new HttpError(409, 'INCOMPLETE_STATE_COVERAGE', 'App State does not bind every Endpoint', {
-                details: { stateId, ...coverage },
-              });
-            }
-          }
+        if (input.activeStateId !== undefined && input.activeStateId !== null) {
+          requireState(current, input.activeStateId);
         }
         const candidate = cloneSnapshot(current);
         applyNullablePatch(candidate.project, input, 'activeStateId');
-        applyNullablePatch(candidate.project, input, 'baseStateId');
+        if (input.activeStateId !== undefined && input.activeStateId !== null) {
+          candidate.project.appStateMode = 'enabled';
+        }
         candidate.project.revision += 1;
         candidate.project.updatedAt = new Date().toISOString();
         const published = await publishJson(projectId, candidate, 'project.json', value => value.project);

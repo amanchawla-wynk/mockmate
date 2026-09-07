@@ -15,7 +15,6 @@ export interface Project {
   description?: string;
   appStateMode: AppStateMode;
   activeStateId?: string;
-  baseStateId?: string;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -145,7 +144,6 @@ export interface AppStateSummary extends Pick<
 > {
   boundEndpointCount: number;
   totalEndpointCount: number;
-  missingEndpointIds: string[];
 }
 
 export interface AppStateReferenceSummary {
@@ -246,8 +244,6 @@ export type CreateAppStateInput = Omit<
 
 export interface StateSelectionInput {
   activeStateId?: string | null;
-  baseStateId?: string | null;
-  allowFallback: boolean;
 }
 
 export interface RepositoryDiagnostic extends ValidationFinding {

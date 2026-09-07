@@ -23,7 +23,6 @@ export function createAutomationRouter(
       const project = repository.getProject(projectId);
       await repository.setStateSelection(projectId, project.revision, {
         activeStateId: req.body.stateId,
-        allowFallback: true,
       });
     }
     res.status(204).send();

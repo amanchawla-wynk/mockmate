@@ -15,7 +15,7 @@ function jsonResponse(value: unknown, status = 200): Response {
 describe('EndpointEditor real client integration', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('creates and selects an atomic first fallback before switching to mock', async () => {
+  it('creates and selects an atomic first Serving now Variant before switching to mock', async () => {
     const emptyEndpoint: EndpointDetail = {
       schemaVersion: 4,
       id: 'ep_1',
@@ -75,7 +75,7 @@ describe('EndpointEditor real client integration', () => {
 
     expect(await screen.findByLabelText('Variant name')).toHaveValue(created.name);
     expect(screen.getByRole('tab', { name: /First response/ })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByText('Fallback')).toBeVisible();
+    expect(screen.getByText('Serving now')).toBeVisible();
     expect(screen.queryByText(/Mock not ready/)).not.toBeInTheDocument();
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
       expectedEndpointRevision: 4,

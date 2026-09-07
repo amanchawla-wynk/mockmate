@@ -17,13 +17,13 @@ describe('Traffic public contracts', () => {
       .toBe('http_entity_bytes_after_transfer_framing_before_content_encoding_decoding');
     expect(TRAFFIC_LIMITS).toEqual({
       rowsPerProject: 500,
-      previewBytes: 16 * 1024,
-      bodyBytes: 50 * 1024 * 1024,
-      sidecarQueueBytes: 1 * 1024 * 1024,
+      previewBytes: 1 * 1024 * 1024,
+      bodyBytes: Number.MAX_SAFE_INTEGER - 1,
+      sidecarQueueBytes: 256 * 1024 * 1024,
       projectActiveSidecars: 32,
-      projectQueuedBytes: 32 * 1024 * 1024,
+      projectQueuedBytes: 512 * 1024 * 1024,
       processActiveSidecars: 128,
-      processQueuedBytes: 128 * 1024 * 1024,
+      processQueuedBytes: 1 * 1024 ** 3,
       projectTemporaryBytes: 1 * 1024 ** 3,
       processTemporaryBytes: 2 * 1024 ** 3,
       projectRetainedBytes: 1 * 1024 ** 3,

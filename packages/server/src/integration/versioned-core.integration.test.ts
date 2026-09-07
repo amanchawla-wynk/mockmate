@@ -610,33 +610,30 @@ it('reports revision conflicts without overwriting', async () => {
   }
 });
 
-it('reports partial-state fallback provenance', async () => {
+it('serves the bound Variant and reports active-state provenance', async () => {
   const harness = await createIntegrationHarness();
   try {
     const project = await createProject(harness);
     const defaultAsset = await uploadBody(harness, project.id, Buffer.from('default'), 'text/plain');
-    const baseAsset = await uploadBody(harness, project.id, Buffer.from('base'), 'text/plain');
+    const boundAsset = await uploadBody(harness, project.id, Buffer.from('bound'), 'text/plain');
     const endpoint = await createEndpoint(harness, project.id, {
       requestPath: '/stateful',
       variants: [
         { name: 'Default', bodyAssetId: defaultAsset.id },
-        { name: 'Base', bodyAssetId: baseAsset.id },
+        { name: 'Bound', bodyAssetId: boundAsset.id },
       ],
     });
     const active = await harness.request.post(`/api/admin/projects/${project.id}/states`).send({
-      name: 'Active', tags: [], bindings: {},
-    }).expect(201);
-    const base = await harness.request.post(`/api/admin/projects/${project.id}/states`).send({
-      name: 'Base', tags: [], bindings: { [endpoint.id]: endpoint.variants[1].id },
+      name: 'Active', tags: [], bindings: { [endpoint.id]: endpoint.variants[1].id },
     }).expect(201);
     await configureTraffic(harness, project.id, ['api.example.test']);
     const currentProject = (await harness.request.get(`/api/admin/projects/${project.id}`)).body as Project;
-    await harness.request.put(`/api/admin/projects/${project.id}/state-selection`).send({
+    const selected = await harness.request.put(`/api/admin/projects/${project.id}/state-selection`).send({
       expectedRevision: currentProject.revision,
       activeStateId: active.body.id,
-      baseStateId: base.body.id,
-      allowFallback: true,
     }).expect(200);
+    // Activating an App State enables App State mode in the same revision.
+    expect(selected.body).toMatchObject({ appStateMode: 'enabled', activeStateId: active.body.id });
     await selectProject(harness, project.id);
 
     const delivered = await harness.request
@@ -644,8 +641,12 @@ it('reports partial-state fallback provenance', async () => {
       .set('Host', 'api.example.test')
       .buffer(true)
       .parse(binaryParser);
-    expect(delivered.body).toEqual(Buffer.from('base'));
-    const traffic = await harness.request.get(`/api/admin/projects/${project.id}/traffic`).expect(200);
+    expect(delivered.body).toEqual(Buffer.from('bound'));
+    let traffic!: Response;
+    await vi.waitFor(async () => {
+      traffic = await harness.request.get(`/api/admin/projects/${project.id}/traffic`).expect(200);
+      expect(traffic.body.entries.length).toBeGreaterThan(0);
+    });
     const detail = await harness.request
       .get(`/api/admin/projects/${project.id}/traffic/${traffic.body.entries.at(-1).id}`)
       .expect(200);
@@ -653,11 +654,57 @@ it('reports partial-state fallback provenance', async () => {
       endpoint: { id: endpoint.id },
       variantId: endpoint.variants[1].id,
       appState: {
-        selectedStateId: base.body.id,
-        resolutionSource: 'project_base_state',
+        selectedStateId: active.body.id,
+        resolutionSource: 'project_active_state',
+        fallbackReasons: [],
+      },
+    });
+  } finally {
+    await harness.dispose();
+  }
+});
+
+it('passes an unbound mock Endpoint through and reports why', async () => {
+  const harness = await createIntegrationHarness();
+  try {
+    const project = await createProject(harness);
+    const defaultAsset = await uploadBody(harness, project.id, Buffer.from('default'), 'text/plain');
+    const endpoint = await createEndpoint(harness, project.id, {
+      requestPath: '/stateful',
+      variants: [{ name: 'Default', bodyAssetId: defaultAsset.id }],
+    });
+    const active = await harness.request.post(`/api/admin/projects/${project.id}/states`).send({
+      name: 'Active', tags: [], bindings: {},
+    }).expect(201);
+    await configureTraffic(harness, project.id, ['api.example.test']);
+    const currentProject = (await harness.request.get(`/api/admin/projects/${project.id}`)).body as Project;
+    await harness.request.put(`/api/admin/projects/${project.id}/state-selection`).send({
+      expectedRevision: currentProject.revision,
+      activeStateId: active.body.id,
+    }).expect(200);
+    await selectProject(harness, project.id);
+
+    // Direct requests cannot forward upstream, so an unbound mock Endpoint stays a 404.
+    const delivered = await harness.request.get('/stateful').set('Host', 'api.example.test');
+    expect(delivered.status).toBe(404);
+    expect(delivered.body).toMatchObject({ code: 'ENDPOINT_NOT_FOUND' });
+
+    let traffic!: Response;
+    await vi.waitFor(async () => {
+      traffic = await harness.request.get(`/api/admin/projects/${project.id}/traffic`).expect(200);
+      expect(traffic.body.entries.length).toBeGreaterThan(0);
+    });
+    const detail = await harness.request
+      .get(`/api/admin/projects/${project.id}/traffic/${traffic.body.entries.at(-1).id}`)
+      .expect(200);
+    expect(detail.body).toMatchObject({
+      endpoint: { id: endpoint.id, mode: 'mock' },
+      appState: {
+        activeStateId: active.body.id,
         fallbackReasons: ['active_state_unbound'],
       },
     });
+    expect(detail.body).not.toHaveProperty('variantId');
   } finally {
     await harness.dispose();
   }
@@ -699,11 +746,22 @@ it('preserves mobile automation selection when a bound Variant deletion is block
     }).expect(201);
     const stateId = state.body.id as string;
     await selectProject(harness, project.id);
+    const beforeFlags = (await harness.request
+      .get(`/api/admin/projects/${project.id}`)
+      .expect(200)).body as Project;
 
     await harness.request
       .put('/setMockServerflags')
       .send({ projectId: project.id, stateId, clearTraffic: true })
       .expect(204);
+
+    expect((await harness.request
+      .get(`/api/admin/projects/${project.id}`)
+      .expect(200)).body).toMatchObject({
+      appStateMode: 'enabled',
+      activeStateId: stateId,
+      revision: beforeFlags.revision + 1,
+    });
 
     const first = await harness.request
       .get('/mobile/profile')

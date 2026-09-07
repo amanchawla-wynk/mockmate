@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { BodyAsset } from '../domain/model';
 import { HttpError } from '../services/api-errors';

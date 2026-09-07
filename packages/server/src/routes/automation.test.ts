@@ -20,6 +20,23 @@ function appFor(repository: ProjectRepository, traffic: TrafficService) {
 }
 
 describe('automation Traffic integration', () => {
+  it('activates the requested App State through the atomic selection write', async () => {
+    const setStateSelection = vi.fn().mockResolvedValue({});
+    const repository = {
+      getWorkspaceState: () => ({ activeProjectId: 'prj_1' }),
+      getProject: () => ({ id: 'prj_1', revision: 7, appStateMode: 'disabled' }),
+      setStateSelection,
+    } as unknown as ProjectRepository;
+    const traffic = { clear: vi.fn() } as unknown as TrafficService;
+
+    await request(appFor(repository, traffic))
+      .post('/setMockServerflags')
+      .send({ projectId: 'prj_1', stateId: 'state_1' })
+      .expect(204);
+
+    expect(setStateSelection).toHaveBeenCalledWith('prj_1', 7, { activeStateId: 'state_1' });
+  });
+
   it('awaits the Project-owned Traffic clear before responding', async () => {
     const clearing = deferred();
     const traffic = {

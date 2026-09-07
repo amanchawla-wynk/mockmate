@@ -230,7 +230,7 @@ vi.mock('./hooks/useStates', () => ({
     return ({
     states: [{
       id: state.id, projectId: state.projectId, name: state.name, tags: [], revision: 3,
-      boundEndpointCount: 1, totalEndpointCount: 1, missingEndpointIds: [],
+      boundEndpointCount: 1, totalEndpointCount: 1,
     }],
     selectedState: state, selectedStateId: state.id,
     loading: false, detailLoading: false,
@@ -574,14 +574,16 @@ describe('canonical App shell', () => {
     const pendingSettings = deferred<ProjectRuntimeSettings>();
     const { rerender } = render(<App />);
     await user.click(screen.getByRole('tab', { name: 'Proxy Intercept' }));
-    expect(await screen.findByLabelText('Capture raw traffic')).not.toBeChecked();
+    expect(await screen.findByLabelText('Intercept host patterns')).toBeVisible();
+    expect(screen.queryByLabelText('Capture raw traffic')).not.toBeInTheDocument();
+    expect(screen.getByText(/Exact Traffic bodies are always retained/)).toBeVisible();
 
     vi.mocked(projectsApi.getRuntimeSettings).mockImplementation(async projectId => (
       projectId === secondProject.id ? pendingSettings.promise : {
         schemaVersion: 4,
         projectId,
         interceptHosts: [],
-        captureRawTraffic: false,
+        captureRawTraffic: true,
         debugProvenanceHeaders: false,
         revision: 1,
       }
@@ -840,7 +842,6 @@ describe('canonical App shell', () => {
           revision: candidate.revision,
           boundEndpointCount: 1,
           totalEndpointCount: 1,
-          missingEndpointIds: [],
         })),
         selectedState,
         selectedStateId,
@@ -930,7 +931,6 @@ describe('canonical App shell', () => {
           revision: selectedState.revision,
           boundEndpointCount: 1,
           totalEndpointCount: 1,
-          missingEndpointIds: [],
         }],
         selectedState,
         selectedStateId: selectedState.id,
