@@ -111,4 +111,15 @@ describe('decodeEntityStream', () => {
     await expect(decodeEntityStream(Readable.from([encoded]), 'gzip', 50))
       .rejects.toBeInstanceOf(ContentEncodingDecodeError);
   });
+
+  it('decodes bodies larger than the default 16 KiB stream highWaterMark', async () => {
+    // Regression: a terminal Transform that emitted its output stalled the pipeline
+    // via backpressure once decoded output exceeded 16 KiB, hanging the body route.
+    const plain = Buffer.alloc(64 * 1024, 0x61);
+    const encoded = gzipSync(plain);
+    const result = await decodeEntityStream(Readable.from([encoded]), 'gzip', plain.byteLength);
+    expect(result.bytes).toEqual(plain);
+    expect(result.bytes.byteLength).toBe(plain.byteLength);
+    expect(result.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
 });

@@ -59,6 +59,7 @@ function versionedApp(
   value: ProjectRepository = repository,
   options: AppOptions = { isAdminRequestLocal: () => true },
 ): Application {
+  const getPorts = () => ({ http: 3000, https: 3443, proxy: 8080 });
   return createApp({
     runtime: {
       rootDirectory: root,
@@ -75,8 +76,9 @@ function versionedApp(
     },
     setupRouter: createSetupRouter({
       certificateDirectory: path.join(root, 'certificates'),
-      getPorts: () => ({ http: 3000, https: 3443, proxy: 8080 }),
+      getPorts,
     }),
+    getPorts,
   });
 }
 
@@ -182,7 +184,11 @@ afterEach(async () => {
 
 describe('canonical core application', () => {
   it('always requires an initialized repository and exposes only canonical routes', async () => {
-    expect(() => createApp({ runtime: undefined as never, setupRouter: undefined as never }))
+    expect(() => createApp({
+      runtime: undefined as never,
+      setupRouter: undefined as never,
+      getPorts: undefined as never,
+    }))
       .toThrow(/RuntimeContext/i);
     await request(app).get('/api/admin/diagnostics').expect(200);
     await request(app).get('/api/admin/status').expect(404);

@@ -189,7 +189,50 @@ describe('loadTrafficTextBody', () => {
       signal: new AbortController().signal,
       onProgress: vi.fn(),
     });
-    expect(result.text.toString()).toBe('{"ok":true}');
+    expect(result.text.toString()).toBe('{\n  "ok": true\n}');
+  });
+
+  it('pretty-prints minified JSON bodies while preserving the raw byte count', async () => {
+    const bytes = new TextEncoder().encode('{"a":1,"b":[2,3]}');
+    const digestBytes = await crypto.subtle.digest('SHA-256', bytes);
+    const jsonDigest = [...new Uint8Array(digestBytes)]
+      .map(value => value.toString(16).padStart(2, '0')).join('');
+    const response = streamedResponse([bytes], {
+      'Content-Type': 'application/json',
+      'Content-Length': String(bytes.byteLength),
+      'X-MockMate-Sha256': jsonDigest,
+    });
+
+    const result = await loadTrafficTextBody({
+      response,
+      expected: { sha256: jsonDigest, byteCount: bytes.byteLength, mediaType: 'application/json' },
+      signal: new AbortController().signal,
+      onProgress: vi.fn(),
+    });
+
+    expect(result.text.toString()).toBe('{\n  "a": 1,\n  "b": [\n    2,\n    3\n  ]\n}');
+    expect(result.byteCount).toBe(bytes.byteLength);
+  });
+
+  it('leaves invalid JSON bodies untouched', async () => {
+    const bytes = new TextEncoder().encode('{"a":1');
+    const digestBytes = await crypto.subtle.digest('SHA-256', bytes);
+    const jsonDigest = [...new Uint8Array(digestBytes)]
+      .map(value => value.toString(16).padStart(2, '0')).join('');
+    const response = streamedResponse([bytes], {
+      'Content-Type': 'application/json',
+      'Content-Length': String(bytes.byteLength),
+      'X-MockMate-Sha256': jsonDigest,
+    });
+
+    const result = await loadTrafficTextBody({
+      response,
+      expected: { sha256: jsonDigest, byteCount: bytes.byteLength, mediaType: 'application/json' },
+      signal: new AbortController().signal,
+      onProgress: vi.fn(),
+    });
+
+    expect(result.text.toString()).toBe('{"a":1');
   });
 });
 

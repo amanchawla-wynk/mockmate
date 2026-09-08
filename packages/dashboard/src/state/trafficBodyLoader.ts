@@ -54,6 +54,30 @@ export function classifyTrafficBody(input: {
   };
 }
 
+/**
+ * Bodies at or below this size are pretty-printed when they parse as JSON. Larger
+ * bodies are shown verbatim to avoid parsing the whole document into memory, matching
+ * the editor's large-body mode where syntax parsing is disabled.
+ */
+const JSON_PRETTY_MAX_BYTES = 1 * 1024 * 1024;
+
+/**
+ * Build the display document for a loaded body. Valid JSON under the size cap is
+ * re-indented for readability; every other body (non-JSON, invalid JSON, or oversized)
+ * is returned exactly as captured.
+ */
+function buildBodyDocumentText(lines: string[], byteCount: number, mediaType: string): Text {
+  if (isJsonMediaType(mediaType) && byteCount <= JSON_PRETTY_MAX_BYTES) {
+    try {
+      const formatted = JSON.stringify(JSON.parse(lines.join('\n')), null, 2);
+      return Text.of(formatted.split('\n'));
+    } catch {
+      // Not valid JSON despite its media type; fall back to the captured bytes.
+    }
+  }
+  return Text.of(lines);
+}
+
 function abortError(): DOMException {
   return new DOMException('Traffic body load aborted', 'AbortError');
 }
@@ -181,7 +205,7 @@ export async function loadTrafficTextBody(input: {
     }
     lines.push(lineParts.join(''));
     return {
-      text: Text.of(lines),
+      text: buildBodyDocumentText(lines, loadedBytes, input.expected.mediaType),
       byteCount: loadedBytes,
       mediaType: input.expected.mediaType,
     };

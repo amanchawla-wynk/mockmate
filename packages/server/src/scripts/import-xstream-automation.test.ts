@@ -111,7 +111,12 @@ describe('XStream automation import', () => {
     await fs.promises.writeFile(path.join(staticDirectory, 'movie', 'trailer.mp4'), Buffer.from([0x00, 0x00]));
     await fs.promises.writeFile(path.join(staticDirectory, 'movie', 'player.html'), '<video></video>');
 
-    const options = { repository, fixturesDirectory, staticDirectory };
+    const options = {
+      repository,
+      fixturesDirectory,
+      staticDirectory,
+      staticBaseUrl: 'https://192.168.1.20:3457',
+    };
     const first = await importer.importXstreamAutomation(options);
     const project = repository.getProject(first.projectId);
     const endpoints = repository.listEndpoints(project.id)
@@ -172,19 +177,21 @@ describe('XStream automation import', () => {
     const playback = endpoints.find(endpoint => endpoint.matcher.path === '/v4/user/playback')!;
     const playbackBodyId = playback.variants.find(variant => variant.id === playback.defaultVariantId)?.bodyAssetId;
     expect(await readBody(project.id, playbackBodyId!))
-      .toContain('https://play-preprod.wynk.in/static_files/movie/master.m3u8');
+      .toContain('https://192.168.1.20:3457/static_files/movie/master.m3u8');
     expect(repository.listStaticFiles(project.id)).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: 'movie/master.m3u8', size: 7, mediaType: 'application/vnd.apple.mpegurl' }),
       expect.objectContaining({ path: 'movie/segment.ts', mediaType: 'video/mp2t' }),
       expect.objectContaining({ path: 'movie/trailer.mp4', mediaType: 'video/mp4' }),
       expect.objectContaining({ path: 'movie/player.html', mediaType: 'text/html' }),
     ]));
+    const getPorts = () => ({ http: 3000, https: 3443, proxy: 8080 });
     const app = createApp({
       runtime,
       setupRouter: createSetupRouter({
         certificateDirectory: path.join(root, 'certificates'),
-        getPorts: () => ({ http: 3000, https: 3443, proxy: 8080 }),
+        getPorts,
       }),
+      getPorts,
     });
     for (const [staticPath, mediaType] of [
       ['movie/master.m3u8', 'application/vnd.apple.mpegurl'],
@@ -212,7 +219,11 @@ describe('XStream automation import', () => {
   }, 30_000);
 
   it('fails with an actionable fixture name instead of silently importing partial semantics', async () => {
-    await expect(importer.importXstreamAutomation({ repository, fixturesDirectory }))
+    await expect(importer.importXstreamAutomation({
+      repository,
+      fixturesDirectory,
+      staticBaseUrl: 'https://192.168.1.20:3457',
+    }))
       .rejects.toThrow('generate_otp_success.json');
   });
 });

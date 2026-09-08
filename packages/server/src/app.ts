@@ -223,7 +223,11 @@ async function handleDirectRequest(input: {
   }
 }
 
-export function createApp(options: { runtime: RuntimeContext; setupRouter: Router }): Application {
+export function createApp(options: {
+  runtime: RuntimeContext;
+  setupRouter: Router;
+  getPorts: () => ServerPorts;
+}): Application {
   if (!options?.runtime?.repository || !options.runtime.traffic) {
     throw new Error('MockMate requires an initialized RuntimeContext');
   }
@@ -231,6 +235,10 @@ export function createApp(options: { runtime: RuntimeContext; setupRouter: Route
   const { runtime } = options;
   const { repository } = runtime;
   const localControlHosts = getLocalControlHosts();
+  const getStaticDeliveryBaseUrl = () => {
+    const host = getLocalIPAddresses()[0] ?? 'localhost';
+    return `https://${host}:${options.getPorts().https}`;
+  };
   const app = express();
   app.use(requestIdMiddleware);
   app.use((request, response, next) => {
@@ -280,7 +288,12 @@ export function createApp(options: { runtime: RuntimeContext; setupRouter: Route
     exposedHeaders: ['Content-Type', 'Content-Length', 'Content-Encoding', 'X-Request-Id'],
     credentials: false,
   }));
-  app.use('/api/admin', createAdminRouter(repository, localControlHosts, runtime.traffic));
+  app.use('/api/admin', createAdminRouter(
+    repository,
+    localControlHosts,
+    runtime.traffic,
+    getStaticDeliveryBaseUrl,
+  ));
   app.use('/api/admin', (_request, _response, next) => {
     next(new HttpError(404, 'ADMIN_ROUTE_NOT_FOUND', 'Admin route not found'));
   });
@@ -455,15 +468,16 @@ export async function startServers(options: StartServersOptions): Promise<Server
       runtime.rootDirectory,
       options.certificateDirectory,
     );
+    const getPorts = () => {
+      if (publishedPorts === undefined) throw new Error('Server ports are not published');
+      return publishedPorts;
+    };
     const setupRouter = createSetupRouter({
       certificateDirectory,
-      getPorts: () => {
-        if (publishedPorts === undefined) throw new Error('Server ports are not published');
-        return publishedPorts;
-      },
+      getPorts,
     });
     certificates = await ensureCertificates(getLocalIPAddresses(), certificateDirectory);
-    app = createApp({ runtime, setupRouter });
+    app = createApp({ runtime, setupRouter, getPorts });
   } catch (error) {
     await runtime.dispose().catch(() => undefined);
     throw error;

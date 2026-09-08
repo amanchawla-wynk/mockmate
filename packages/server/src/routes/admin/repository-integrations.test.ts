@@ -130,12 +130,14 @@ afterEach(async () => {
 });
 
 function appFor(value: ProjectRepository = repository) {
+  const getPorts = () => ({ http: 3000, https: 3443, proxy: 8080 });
   return createApp({
     runtime: { ...runtime, repository: value },
     setupRouter: createSetupRouter({
       certificateDirectory: path.join(root, 'certificates'),
-      getPorts: () => ({ http: 3000, https: 3443, proxy: 8080 }),
+      getPorts,
     }),
+    getPorts,
   });
 }
 

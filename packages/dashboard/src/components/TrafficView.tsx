@@ -289,11 +289,12 @@ export function TrafficView({
 
   const filtered = useMemo(() => {
     const query = filter.trim().toLowerCase();
-    if (!query) return traffic;
-    return traffic.filter(entry => (
+    const matched = !query ? traffic : traffic.filter(entry => (
       `${entry.method} ${entry.path} ${entry.status} ${entry.decision} ${entry.endpoint?.name ?? ''}`
         .toLowerCase().includes(query)
     ));
+    // Show the most recent call at the top; `traffic` is captured oldest-first.
+    return [...matched].reverse();
   }, [filter, traffic]);
   const selected = filtered.find(entry => entry.id === selectedId);
   const detail = selectedTraffic?.id === selected?.id ? selectedTraffic : null;

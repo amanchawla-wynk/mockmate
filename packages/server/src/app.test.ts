@@ -19,6 +19,7 @@ import {
   createRuntime,
   type RuntimeContext,
 } from './runtime/create-runtime';
+import { getLocalIPAddresses } from './services/network';
 import { connectProxySocket, readProxyResponse } from './test-support/proxy-test-client';
 
 function deferred<T = void>() {
@@ -101,17 +102,23 @@ describe('canonical MockMate application', () => {
     candidate: ProjectRepository,
     adminSecurity = runtime.adminSecurity,
   ): Application {
+    const getPorts = () => ({ http: 3456, https: 3457, proxy: 8888 });
     return createApp({
       runtime: { ...runtime, repository: candidate, adminSecurity },
       setupRouter: createSetupRouter({
         certificateDirectory: path.join(root, 'certificates'),
-        getPorts: () => ({ http: 3456, https: 3457, proxy: 8888 }),
+        getPorts,
       }),
+      getPorts,
     });
   }
 
   it('requires an initialized repository when constructing the app', () => {
-    expect(() => createApp({ runtime: undefined as never, setupRouter: undefined as never }))
+    expect(() => createApp({
+      runtime: undefined as never,
+      setupRouter: undefined as never,
+      getPorts: undefined as never,
+    }))
       .toThrow('MockMate requires an initialized RuntimeContext');
   });
 
@@ -351,6 +358,8 @@ describe('canonical MockMate application', () => {
       .send(bytes);
     expect(upload.status).toBe(201);
     expect(upload.body).toMatchObject({ file: { size: bytes.length, mediaType: 'application/octet-stream' } });
+    const listed = await request(app).get(`/api/admin/projects/${projectId}/static-files`);
+    expect(listed.body.baseUrl).toBe(`https://${getLocalIPAddresses()[0] ?? 'localhost'}:3457`);
     const served = await request(app).get('/static_files/data/blob.bin').buffer(true);
     expect(Buffer.from(served.body)).toEqual(bytes);
     expect(createHash('sha256').update(served.body).digest('hex'))

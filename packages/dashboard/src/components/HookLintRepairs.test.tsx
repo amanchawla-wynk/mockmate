@@ -32,7 +32,10 @@ beforeEach(() => {
   vi.mocked(projectsApi.list).mockResolvedValue([]);
   vi.mocked(projectsApi.getWorkspace).mockResolvedValue({ schemaVersion: 4, revision: 0 });
   vi.mocked(endpointsApi.list).mockResolvedValue([]);
-  vi.mocked(staticFilesApi.list).mockResolvedValue({ files: [] });
+  vi.mocked(staticFilesApi.list).mockResolvedValue({
+    files: [],
+    baseUrl: 'https://192.168.1.20:3457',
+  });
 });
 
 describe('hook lifecycle behavior', () => {

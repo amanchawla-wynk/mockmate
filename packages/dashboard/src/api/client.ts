@@ -304,10 +304,13 @@ export const importApi = {
 
 export const staticFilesApi = {
   list: (projectId: string, signal?: AbortSignal) =>
-    json<{ files: StaticFileEntry[] }>(`${API_BASE}/projects/${segment(projectId)}/static-files`, { signal }),
-  upload: (projectId: string, filePath: string, file: File) =>
+    json<{ files: StaticFileEntry[]; baseUrl: string }>(
+      `${API_BASE}/projects/${segment(projectId)}/static-files`,
+      { signal },
+    ),
+  upload: (projectId: string, filePath: string, file: File, contentType?: string) =>
     response(`${API_BASE}/projects/${segment(projectId)}/static-files?path=${encodeURIComponent(filePath)}`, {
-      method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
+      method: 'POST', headers: { 'Content-Type': contentType || file.type || 'application/octet-stream' }, body: file,
     }).then(result => result.json() as Promise<{ ok: boolean; file: StaticFileEntry }>),
   delete: (projectId: string, filePath: string) =>
     json<void>(`${API_BASE}/projects/${segment(projectId)}/static-files?path=${encodeURIComponent(filePath)}`, {

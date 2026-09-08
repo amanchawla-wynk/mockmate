@@ -33,12 +33,14 @@ describe('canonical admin router composition', () => {
       processTraffic: createProcessTrafficContext(),
       isAdminRequestLocal: () => true,
     });
+    const getPorts = () => ({ http: 3000, https: 3443, proxy: 8080 });
     app = createApp({
       runtime,
       setupRouter: createSetupRouter({
         certificateDirectory: path.join(root, 'certificates'),
-        getPorts: () => ({ http: 3000, https: 3443, proxy: 8080 }),
+        getPorts,
       }),
+      getPorts,
     });
   });
 

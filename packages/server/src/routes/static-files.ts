@@ -21,11 +21,17 @@ const requireIdentityContentEncoding: RequestHandler = (req, _res, next) => {
   next();
 };
 
-export function createStaticFilesRouter(repository: ProjectRepository): Router {
+export function createStaticFilesRouter(
+  repository: ProjectRepository,
+  getDeliveryBaseUrl: () => string,
+): Router {
   const router = Router({ mergeParams: true });
 
   router.get('/', (req, res) => {
-    res.json({ files: repository.listStaticFiles((req.params as { projectId: string }).projectId) });
+    res.json({
+      files: repository.listStaticFiles((req.params as { projectId: string }).projectId),
+      baseUrl: getDeliveryBaseUrl(),
+    });
   });
 
   router.post(

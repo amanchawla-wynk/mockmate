@@ -16,11 +16,15 @@ export function createAdminRouter(
   repository: ProjectRepository,
   localControlHosts: ReadonlySet<string>,
   traffic: TrafficService,
+  getStaticDeliveryBaseUrl: () => string,
 ): Router {
   const router = Router();
 
   router.use('/projects/:projectId/bodies', createBodiesRouter(repository));
-  router.use('/projects/:projectId/static-files', createStaticFilesRouter(repository));
+  router.use(
+    '/projects/:projectId/static-files',
+    createStaticFilesRouter(repository, getStaticDeliveryBaseUrl),
+  );
   router.use(express.json({ limit: '12mb' }));
 
   mountWorkspaceRoutes(router, repository);

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { PassThrough, Readable, Transform, type TransformCallback } from 'node:stream';
+import { PassThrough, Readable, Transform, Writable, type TransformCallback } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import {
   brotliDecompressSync,
@@ -271,8 +271,11 @@ export async function decodeEntityStream(
   const chunks: Buffer[] = [];
   let total = 0;
 
-  const limiter = new Transform({
-    transform(chunk: Buffer, _enc: BufferEncoding, callback: TransformCallback) {
+  // Terminal sink: collect decoded bytes without emitting downstream. Emitting to
+  // the readable side (as a Transform) would buffer unconsumed output and stall the
+  // pipeline via backpressure once it reaches the default 16 KiB highWaterMark.
+  const limiter = new Writable({
+    write(chunk: Buffer, _enc: BufferEncoding, callback: (error?: Error | null) => void) {
       total += chunk.byteLength;
       if (total > maxDecodedBytes) {
         callback(new ContentEncodingDecodeError(
@@ -280,9 +283,8 @@ export async function decodeEntityStream(
         ));
         return;
       }
-      const copy = Buffer.from(chunk);
-      chunks.push(copy);
-      callback(null, copy);
+      chunks.push(Buffer.from(chunk));
+      callback();
     },
   });
 

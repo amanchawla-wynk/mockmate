@@ -6,7 +6,8 @@ import type { EndpointDetail } from '../domain/model';
 import { canonicalEndpointIdentity } from '../repository/compile-project';
 import type { ProjectRepository } from '../repository/project-repository';
 import { createProcessTrafficContext, createRuntime } from '../runtime/create-runtime';
-import { getStorageConfig } from '../services/storage';
+import { getLocalIPAddresses } from '../services/network';
+import { getStorageConfig, readConfig } from '../services/storage';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
@@ -14,6 +15,7 @@ export interface ImportXstreamAutomationOptions {
   repository: ProjectRepository;
   fixturesDirectory: string;
   staticDirectory?: string;
+  staticBaseUrl: string;
 }
 
 export interface ImportedXstreamAutomation {
@@ -346,7 +348,7 @@ export async function importXstreamAutomation(
   }
 
   const localPrefix = 'http://mylocalfiles.com/static_files/';
-  const servedPrefix = `https://${playbackHost}/static_files/`;
+  const servedPrefix = `${options.staticBaseUrl.replace(/\/+$/, '')}/static_files/`;
   await endpoint(
     playbackHost,
     { method: 'GET', path: '/v4/user/playback' },
@@ -442,9 +444,13 @@ async function main(): Promise<void> {
     isAdminRequestLocal: () => true,
   });
   try {
+    const config = readConfig();
+    const host = getLocalIPAddresses()[0] ?? 'localhost';
+    const staticBaseUrl = `https://${host}:${config.server?.httpsPort ?? 3457}`;
     await importXstreamAutomation({
       repository: runtime.repository,
       fixturesDirectory,
+      staticBaseUrl,
       ...(argument('--static-files') ? { staticDirectory: argument('--static-files') } : {}),
     });
   } finally {

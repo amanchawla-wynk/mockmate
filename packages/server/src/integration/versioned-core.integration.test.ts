@@ -880,6 +880,7 @@ it('retains ACL CORS request IDs and sanitization', async () => {
         certificateDirectory: path.join(harness.rootDirectory, 'certificates'),
         getPorts: () => ({ http: 0, https: 0, proxy: 0 }),
       }),
+      getPorts: () => ({ http: 0, https: 0, proxy: 0 }),
     });
     const denied = await request(remoteApp)
       .get('/api/admin/projects')
