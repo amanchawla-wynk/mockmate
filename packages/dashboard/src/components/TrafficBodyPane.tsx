@@ -5,6 +5,7 @@ import type { BodyDocumentCache, BodyDocumentHandle } from '../state/bodyDocumen
 import {
   classifyTrafficBody,
   formatTrafficPreviewText,
+  isJsonMediaType,
   loadTrafficTextBody,
 } from '../state/trafficBodyLoader';
 import { BodyDocumentEditor } from './BodyDocumentEditor';
@@ -28,6 +29,21 @@ const bodyStateCopy = {
 
 function sideLabel(side: 'request' | 'response'): string {
   return side === 'request' ? 'Request' : 'Response';
+}
+
+// Bodies without a JSON media type still qualify for JSON search when their
+// displayed document parses as JSON. Parsing is bounded so a large mislabelled
+// text body cannot stall the main thread.
+const JSON_QUALIFY_MAX_BYTES = 2 * 1024 * 1024;
+
+function documentIsJson(text: string, byteCount: number): boolean {
+  if (byteCount > JSON_QUALIFY_MAX_BYTES || text.length === 0) return false;
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function Spinner({ label }: { label: string }) {
@@ -116,6 +132,8 @@ function TrafficTextSnapshot({
     );
   }
   if (snapshot.editorState === undefined) return null;
+  const searchable = isJsonMediaType(mediaType)
+    || documentIsJson(snapshot.editorState.doc.toString(), snapshot.byteCount);
   return (
     <div className="space-y-2">
       {decoded ? (
@@ -129,6 +147,7 @@ function TrafficTextSnapshot({
         snapshot={{ ...snapshot, state: 'ready', editorState: snapshot.editorState }}
         mode="readonly"
         mediaType={mediaType}
+        searchLabel={searchable ? `Find in ${side} JSON` : undefined}
       />
       {decoded ? <Download projectId={projectId} trafficId={trafficId} side={side} /> : null}
     </div>

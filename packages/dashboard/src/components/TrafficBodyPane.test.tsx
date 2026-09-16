@@ -16,10 +16,10 @@ const descriptor: TrafficBodyDescriptor = {
   sha256: digest,
 };
 
-function response(text: string, sha256 = digest): Response {
+function response(text: string, sha256 = digest, mediaType = 'text/plain'): Response {
   const bytes = new TextEncoder().encode(text);
   return new Response(bytes, { headers: {
-    'Content-Type': 'text/plain',
+    'Content-Type': mediaType,
     'Content-Length': String(bytes.byteLength),
     'X-MockMate-Sha256': sha256,
   } });
@@ -217,6 +217,61 @@ describe('TrafficBodyPane', () => {
       expect.any(AbortSignal),
       { view: 'decoded' },
     );
+  });
+
+  it('shows visible search only for JSON and resets it with Traffic identity', async () => {
+    const value = '{"first":"Needle","second":"needle"}';
+    const bytes = new TextEncoder().encode(value);
+    const digestBytes = await crypto.subtle.digest('SHA-256', bytes);
+    const jsonDigest = [...new Uint8Array(digestBytes)]
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const body = vi.spyOn(trafficApi, 'body').mockImplementation(async () => (
+      response(value, jsonDigest, 'application/json')
+    ));
+    const jsonDescriptor: TrafficBodyDescriptor = {
+      side: 'response',
+      state: 'available',
+      mediaType: 'application/json',
+      observedSize: bytes.byteLength,
+      retainedSize: bytes.byteLength,
+      sha256: jsonDigest,
+    };
+    const cache = createBodyDocumentCache();
+    const rendered = render(pane(cache, jsonDescriptor, 'trf_json_1'));
+
+    const find = await screen.findByRole('searchbox', { name: 'Find in response JSON' });
+    await userEvent.type(find, 'needle');
+    expect(screen.getByText('2 matches')).toBeVisible();
+
+    rendered.rerender(pane(cache, jsonDescriptor, 'trf_json_2'));
+    const replacement = await screen.findByRole('searchbox', { name: 'Find in response JSON' });
+    expect(replacement).toHaveValue('');
+    expect(screen.getByText('0 matches')).toBeVisible();
+
+    body.mockResolvedValue(response('hello'));
+    rendered.rerender(pane(cache, descriptor, 'trf_text'));
+    await screen.findByRole('textbox', { name: 'Response exact body' });
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+  });
+
+  it('qualifies a JSON body served with a generic text media type', async () => {
+    const value = '{"token":"needle"}';
+    const bytes = new TextEncoder().encode(value);
+    const digestBytes = await crypto.subtle.digest('SHA-256', bytes);
+    const textDigest = [...new Uint8Array(digestBytes)]
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    vi.spyOn(trafficApi, 'body').mockImplementation(async () => response(value, textDigest, 'text/plain'));
+
+    render(pane(createBodyDocumentCache(), {
+      side: 'response',
+      state: 'available',
+      mediaType: 'text/plain',
+      observedSize: bytes.byteLength,
+      retainedSize: bytes.byteLength,
+      sha256: textDigest,
+    }, 'trf_text_json'));
+
+    expect(await screen.findByRole('searchbox', { name: 'Find in response JSON' })).toBeVisible();
   });
 
   it.each([
