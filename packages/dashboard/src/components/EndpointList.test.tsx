@@ -128,11 +128,14 @@ describe('EndpointList', () => {
     expect(screen.getByRole('treeitem', { name: /Constrained A/ })
       .compareDocumentPosition(screen.getByRole('treeitem', { name: /Constrained B/ }))
       & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await userEvent.click(screen.getByRole('treeitem', { name: '{id}' }));
+    expect(screen.queryByRole('treeitem', { name: /Constrained B/ })).not.toBeInTheDocument();
   });
 
   it('persists the view locally and keeps selection across view switches', async () => {
     const onSelect = vi.fn();
-    const view = render(
+    const renderResult = render(
       <EndpointList
         endpoints={[endpointSummary]}
         selectedEndpointId="ep_playback"
@@ -153,7 +156,7 @@ describe('EndpointList', () => {
       .toHaveClass('border-blue-300');
 
     await userEvent.click(screen.getByRole('button', { name: 'Tree' }));
-    view.unmount();
+    renderResult.unmount();
     render(
       <EndpointList
         endpoints={[endpointSummary]}

@@ -118,10 +118,13 @@ function flattenEndpointTree(
   return rows;
 }
 
-function focusTreeItem(current: HTMLElement, offset: number | 'first' | 'last') {
+function treeItems(current: HTMLElement): HTMLElement[] {
   const tree = current.closest('[role="tree"]');
-  if (tree === null) return;
-  const items = [...tree.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+  return tree === null ? [] : [...tree.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+}
+
+function focusTreeItem(current: HTMLElement, offset: number | 'first' | 'last') {
+  const items = treeItems(current);
   const currentIndex = items.indexOf(current);
   const nextIndex = offset === 'first'
     ? 0
@@ -166,24 +169,34 @@ function EndpointTree({
   onSelect,
 }: Pick<EndpointListProps, 'endpoints' | 'selectedEndpointId' | 'onSelect'>) {
   const tree = useMemo(() => buildEndpointTree(endpoints), [endpoints]);
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const [focusedKey, setFocusedKey] = useState<string>();
   const selectedAncestors = selectedEndpointId === undefined
     ? []
     : tree.ancestorsByEndpoint.get(selectedEndpointId) ?? [];
-  const visibleExpanded = new Set([...expanded, ...selectedAncestors]);
-  const rows = flattenEndpointTree(tree.roots, visibleExpanded);
+  const selectionKey = `${selectedEndpointId ?? ''}\u0000${selectedAncestors.join('\u0000')}`;
+  const [treeState, setTreeState] = useState(() => ({
+    expanded: new Set(selectedAncestors),
+    selectionKey,
+  }));
+  const [focusedKey, setFocusedKey] = useState<string>();
+  let currentTreeState = treeState;
+  if (treeState.selectionKey !== selectionKey) {
+    currentTreeState = {
+      expanded: new Set([...treeState.expanded, ...selectedAncestors]),
+      selectionKey,
+    };
+    setTreeState(currentTreeState);
+  }
+  const rows = flattenEndpointTree(tree.roots, currentTreeState.expanded);
   const selectedKey = selectedEndpointId === undefined ? undefined : `endpoint:${selectedEndpointId}`;
   const defaultFocusKey = rows.some(row => row.key === selectedKey) ? selectedKey : rows[0]?.key;
   const activeFocusKey = rows.some(row => row.key === focusedKey) ? focusedKey : defaultFocusKey;
 
   const toggleFolder = (key: string) => {
-    if (selectedAncestors.includes(key)) return;
-    setExpanded(current => {
-      const next = new Set(current);
+    setTreeState(current => {
+      const next = new Set(current.expanded);
       if (next.has(key)) next.delete(key);
       else next.add(key);
-      return next;
+      return { ...current, expanded: next };
     });
   };
 
@@ -210,9 +223,7 @@ function EndpointTree({
       toggleFolder(row.key);
       return;
     }
-    const treeElement = event.currentTarget.closest('[role="tree"]');
-    if (treeElement === null) return;
-    const items = [...treeElement.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+    const items = treeItems(event.currentTarget);
     const currentIndex = items.indexOf(event.currentTarget);
     for (let index = currentIndex - 1; index >= 0; index -= 1) {
       if (Number(items[index]!.getAttribute('aria-level')) < row.depth) {
