@@ -197,6 +197,41 @@ describe('EndpointList', () => {
     expect(origin).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('expands new ancestors when selection changes in tree mode', () => {
+    window.localStorage.setItem('mockmate.endpoint-view.v1', 'tree');
+    const second = endpoint({
+      id: 'ep_admin',
+      name: 'Admin health',
+      baseUrl: 'https://admin.example.test',
+      path: '/system/health',
+    });
+    const { rerender } = render(
+      <EndpointList
+        endpoints={[endpointSummary, second]}
+        selectedEndpointId="ep_playback"
+        onSelect={vi.fn()}
+        onImport={vi.fn()}
+        onCreate={vi.fn()}
+      />,
+    );
+
+    rerender(
+      <EndpointList
+        endpoints={[endpointSummary, second]}
+        selectedEndpointId="ep_admin"
+        onSelect={vi.fn()}
+        onImport={vi.fn()}
+        onCreate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('treeitem', { name: 'https://admin.example.test' }))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('treeitem', { name: 'system' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('treeitem', { name: 'health' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('treeitem', { name: /Admin health/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('defaults safely when browser storage is invalid or inaccessible', async () => {
     window.localStorage.setItem('mockmate.endpoint-view.v1', 'invalid');
     const getItem = vi.spyOn(Storage.prototype, 'getItem');

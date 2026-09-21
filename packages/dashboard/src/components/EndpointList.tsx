@@ -43,6 +43,10 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function sameKeys(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((key, index) => key === right[index]);
+}
+
 function buildEndpointTree(endpoints: EndpointSummary[]): {
   roots: EndpointFolder[];
   ancestorsByEndpoint: Map<string, string[]>;
@@ -172,17 +176,19 @@ function EndpointTree({
   const selectedAncestors = selectedEndpointId === undefined
     ? []
     : tree.ancestorsByEndpoint.get(selectedEndpointId) ?? [];
-  const selectionKey = `${selectedEndpointId ?? ''}\u0000${selectedAncestors.join('\u0000')}`;
   const [treeState, setTreeState] = useState(() => ({
     expanded: new Set(selectedAncestors),
-    selectionKey,
+    selectedEndpointId,
+    selectedAncestors,
   }));
   const [focusedKey, setFocusedKey] = useState<string>();
   let currentTreeState = treeState;
-  if (treeState.selectionKey !== selectionKey) {
+  if (treeState.selectedEndpointId !== selectedEndpointId
+    || !sameKeys(treeState.selectedAncestors, selectedAncestors)) {
     currentTreeState = {
       expanded: new Set([...treeState.expanded, ...selectedAncestors]),
-      selectionKey,
+      selectedEndpointId,
+      selectedAncestors,
     };
     setTreeState(currentTreeState);
   }
