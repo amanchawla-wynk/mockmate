@@ -11,6 +11,7 @@ import {
 import { TRAFFIC_LIMITS } from '../../domain/traffic';
 import type { ProjectRepository } from '../../repository/project-repository';
 import { asyncHandler, HttpError, parseApiInput } from '../../services/api-errors';
+import type { TrafficSearchService } from '../../services/traffic-search';
 import type { TrafficService } from '../../services/traffic-service';
 
 const trafficQuerySchema = z.strictObject({
@@ -24,6 +25,12 @@ const trafficQuerySchema = z.strictObject({
       message: 'afterId and beforeId cannot be provided together',
     });
   }
+});
+
+const searchQuerySchema = z.strictObject({
+  q: z.string().min(1),
+  limit: z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().max(100)).optional(),
+  cursor: z.string().min(1).optional(),
 });
 
 const promotionInputSchema = z.strictObject({
@@ -59,9 +66,33 @@ function requireProject(repository: ProjectRepository, projectId: string): void 
   }
 }
 
+/**
+ * Cancels owned work when the client goes away. `IncomingMessage`'s `aborted`
+ * event is deprecated and does not fire for ordinary disconnects, so ownership
+ * follows response `close` before the response finished writing.
+ */
+function requestAbortSignal(
+  request: { socket?: { destroyed?: boolean } },
+  response: {
+    once(event: 'close', listener: () => void): unknown;
+    off(event: 'close', listener: () => void): unknown;
+    writableEnded: boolean;
+  },
+): AbortSignal {
+  const controller = new AbortController();
+  const closed = () => {
+    if (!response.writableEnded) controller.abort();
+    response.off('close', closed);
+  };
+  response.once('close', closed);
+  if (request.socket?.destroyed === true) controller.abort();
+  return controller.signal;
+}
+
 export function createTrafficRouter(
   repository: ProjectRepository,
   traffic: TrafficService,
+  search: TrafficSearchService,
 ): Router {
   const router = Router({ mergeParams: true });
 
@@ -69,6 +100,27 @@ export function createTrafficRouter(
     const projectId = (request.params as { projectId: string }).projectId;
     requireProject(repository, projectId);
     response.json(traffic.list(projectId, parseApiInput(trafficQuerySchema, request.query)));
+  });
+
+  router.get('/search', asyncHandler(async (request, response) => {
+    const projectId = (request.params as { projectId: string }).projectId;
+    requireProject(repository, projectId);
+    const input = parseApiInput(searchQuerySchema, request.query);
+    response.json(await search.search(
+      projectId,
+      { query: input.q, limit: input.limit ?? 100, ...(input.cursor === undefined ? {} : { cursor: input.cursor }) },
+      requestAbortSignal(request, response),
+    ));
+  }));
+
+  router.delete('/search/:searchSessionId', (request, response) => {
+    const { projectId, searchSessionId } = request.params as {
+      projectId: string;
+      searchSessionId: string;
+    };
+    requireProject(repository, projectId);
+    search.deleteSession(projectId, searchSessionId);
+    response.status(204).send();
   });
 
   router.get('/:trafficId', (request, response) => {
@@ -82,6 +134,7 @@ export function createTrafficRouter(
   router.delete('/', asyncHandler(async (request, response) => {
     const projectId = (request.params as { projectId: string }).projectId;
     requireProject(repository, projectId);
+    search.clearProject(projectId);
     await traffic.clear(projectId);
     response.status(204).send();
   }));

@@ -20,6 +20,7 @@ import { apiErrorMiddleware, requestIdMiddleware } from '../services/api-errors'
 import { createSetupRouter } from './setup';
 import { createImportsRouter } from './admin/imports';
 import { createTrafficRouter } from './admin/traffic';
+import { createTrafficSearchService } from '../services/traffic-search';
 
 describe('canonical admin router composition', () => {
   let root: string;
@@ -464,7 +465,11 @@ describe('canonical admin router composition', () => {
     const isolated = express();
     isolated.use(requestIdMiddleware);
     isolated.use(express.json());
-    isolated.use('/projects/:projectId/traffic', createTrafficRouter(runtime.repository, traffic));
+    isolated.use('/projects/:projectId/traffic', createTrafficRouter(
+      runtime.repository,
+      traffic,
+      createTrafficSearchService({ traffic }),
+    ));
     isolated.use(apiErrorMiddleware);
 
     await request(isolated).get(`/projects/${project.id}/traffic?afterId=traffic_0&limit=25`).expect(200);
@@ -513,5 +518,65 @@ describe('canonical admin router composition', () => {
     for (const query of ['?extra=1', '?limit=0', '?afterId=a&beforeId=b']) {
       await request(isolated).get(`/projects/${project.id}/traffic${query}`).expect(422);
     }
+  });
+
+  it('searches retained JSON bodies and manages search sessions', async () => {
+    const project = await runtime.repository.createProject({ name: 'Search Project' });
+    const bytes = Buffer.from(JSON.stringify({ user: 'needle' }));
+    const summary = {
+      id: 'traffic_1', generation: 'gen_1', projectId: project.id, requestId: 'req_1',
+      startedAt: '2026-01-01T00:00:00.000Z', completedAt: '2026-01-01T00:00:00.000Z',
+      durationMs: 1, transport: 'https_mitm', allowlistPattern: 'api.example.com',
+      origin: 'https://api.example.com', method: 'POST', path: '/x', queryNames: [],
+      decision: 'endpoint_passthrough', status: 200, responseBytes: bytes.length,
+      requestBodyState: 'unavailable', responseBodyState: 'available',
+    };
+    const traffic = {
+      list: vi.fn(() => ({ entries: [summary], hasMore: false })),
+      get: vi.fn(() => ({
+        ...summary,
+        request: { query: [], headers: [], body: { side: 'request', state: 'unavailable', observedSize: 0, reason: 'body_unobservable' } },
+        response: {
+          headers: [],
+          body: {
+            side: 'response', state: 'available', mediaType: 'application/json',
+            observedSize: bytes.length, retainedSize: bytes.length, sha256: 'ab'.repeat(32),
+          },
+        },
+        appState: { mode: 'disabled', fallbackReasons: [] },
+        captureState: 'complete',
+        promotion: { state: 'blocked', reason: 'body_unavailable' },
+      })),
+      openBody: vi.fn(async (_projectId: string, _trafficId: string, side: 'request' | 'response') => ({
+        descriptor: {
+          side, state: 'available' as const, mediaType: 'application/json',
+          observedSize: bytes.length, retainedSize: bytes.length, sha256: 'ab'.repeat(32),
+        },
+        lease: {
+          projectId: project.id, sha256: 'ab'.repeat(32), byteCount: bytes.length,
+          openStream: () => Readable.from(bytes), release: vi.fn(async () => undefined),
+        },
+      })),
+    } as unknown as TrafficService;
+    const search = createTrafficSearchService({ traffic });
+    const isolated = express();
+    isolated.use(requestIdMiddleware);
+    isolated.use(express.json());
+    isolated.use('/projects/:projectId/traffic', createTrafficRouter(runtime.repository, traffic, search));
+    isolated.use(apiErrorMiddleware);
+
+    const found = await request(isolated)
+      .get(`/projects/${project.id}/traffic/search?q=needle&limit=50`)
+      .expect(200);
+    expect(found.body.results).toHaveLength(1);
+    expect(found.body.results[0]).toMatchObject({ side: 'response', matchCount: 1 });
+    expect(found.body.results[0].traffic.id).toBe('traffic_1');
+
+    await request(isolated)
+      .delete(`/projects/${project.id}/traffic/search/${found.body.searchSessionId}`)
+      .expect(204);
+
+    await request(isolated).get(`/projects/${project.id}/traffic/search`).expect(422);
+    await request(isolated).get(`/projects/${project.id}/traffic/search?q=%20%20`).expect(400);
   });
 });

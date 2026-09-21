@@ -19,6 +19,8 @@ export interface TrafficBodyPaneProps {
   cache: BodyDocumentCache;
   /** inspector: exact/decoded with spinner; falls back to preview when blocked. legacy: always shows preview */
   mode?: 'inspector' | 'legacy';
+  /** Seeds the visible JSON search toolbar when opened from overall search. */
+  initialSearchQuery?: string;
 }
 
 const bodyStateCopy = {
@@ -104,6 +106,7 @@ function TrafficTextSnapshot({
   mediaType,
   decoded,
   inspector,
+  initialSearchQuery,
 }: TrafficTextDocumentProps & { handle: BodyDocumentHandle }) {
   const snapshot = useSyncExternalStore(handle.subscribe, handle.getSnapshot, handle.getSnapshot);
 
@@ -148,6 +151,7 @@ function TrafficTextSnapshot({
         mode="readonly"
         mediaType={mediaType}
         searchLabel={searchable ? `Find in ${side} JSON` : undefined}
+        {...(searchable && initialSearchQuery !== undefined ? { initialSearchQuery } : {})}
       />
       {decoded ? <Download projectId={projectId} trafficId={trafficId} side={side} /> : null}
     </div>
@@ -236,6 +240,7 @@ export function TrafficBodyPane({
   preview,
   cache,
   mode = 'inspector',
+  initialSearchQuery,
 }: TrafficBodyPaneProps) {
   const presentation = classifyTrafficBody({ descriptor });
   const mediaType = descriptor.state === 'available' ? descriptor.mediaType : undefined;
@@ -274,6 +279,7 @@ export function TrafficBodyPane({
           decoded={presentation.decoded}
           cache={cache}
           inspector={inspector}
+          {...(initialSearchQuery !== undefined ? { initialSearchQuery } : {})}
         />
       ) : null}
     </div>

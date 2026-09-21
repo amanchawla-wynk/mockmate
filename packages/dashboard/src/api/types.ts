@@ -435,6 +435,39 @@ export interface TrafficDetail extends TrafficSummary {
     | { state: 'promoted'; result: TrafficPromotionResult };
 }
 
+export interface TrafficJsonSearchMatch {
+  jsonPointer: string;
+  kind: 'key' | 'value';
+  occurrence: number;
+  snippet: string;
+}
+
+export interface TrafficJsonSearchResult {
+  traffic: TrafficSummary;
+  side: 'request' | 'response';
+  matchCount: number;
+  matches: TrafficJsonSearchMatch[];
+}
+
+export interface TrafficJsonSearchSkipped {
+  unavailable: number;
+  truncated: number;
+  evicted: number;
+  unsupportedEncoding: number;
+  invalidUtf8: number;
+  notJson: number;
+  changedDuringSearch: number;
+  searchBudgetExceeded: number;
+}
+
+export interface TrafficJsonSearchPage {
+  searchSessionId: string;
+  query: string;
+  results: TrafficJsonSearchResult[];
+  nextCursor?: string;
+  skipped: TrafficJsonSearchSkipped;
+}
+
 export interface TrafficQuery { afterId?: string; beforeId?: string; limit?: number }
 export interface TrafficPage {
   entries: TrafficSummary[];

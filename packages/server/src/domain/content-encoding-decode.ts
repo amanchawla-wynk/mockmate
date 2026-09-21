@@ -22,6 +22,18 @@ export class ContentEncodingDecodeError extends Error {
   }
 }
 
+/**
+ * Raised when decoded output exceeds the caller's ceiling. Subclassing keeps the
+ * existing `ContentEncodingDecodeError` handling intact while letting callers
+ * distinguish a size ceiling from a malformed or unsupported stream.
+ */
+export class ContentEncodingBudgetError extends ContentEncodingDecodeError {
+  constructor(readonly maxDecodedBytes: number) {
+    super(`Decoded body exceeds ${maxDecodedBytes} bytes`);
+    this.name = 'ContentEncodingBudgetError';
+  }
+}
+
 type SupportedCoding = 'gzip' | 'deflate' | 'br';
 type ZlibDecoder = Gunzip | Inflate | BrotliDecompress;
 
@@ -278,9 +290,7 @@ export async function decodeEntityStream(
     write(chunk: Buffer, _enc: BufferEncoding, callback: (error?: Error | null) => void) {
       total += chunk.byteLength;
       if (total > maxDecodedBytes) {
-        callback(new ContentEncodingDecodeError(
-          `Decoded body exceeds ${maxDecodedBytes} bytes`,
-        ));
+        callback(new ContentEncodingBudgetError(maxDecodedBytes));
         return;
       }
       chunks.push(Buffer.from(chunk));

@@ -18,8 +18,11 @@ import type {
 } from '../api/types';
 import type { BodyDocumentCache } from '../state/bodyDocumentCache';
 import { useBodyDocumentCache } from '../state/bodyDocumentCacheContext';
+import { useTrafficSearch } from '../hooks/useTrafficSearch';
 import { TrafficBodyPane } from './TrafficBodyPane';
+import { TrafficSearchPanel } from './TrafficSearchPanel';
 import { blockedCopy, promoteFromTrafficDetail } from './promoteFromTrafficDetail';
+import type { TrafficJsonSearchResult } from '../api/types';
 
 interface TrafficViewProps {
   traffic: TrafficSummary[];
@@ -217,6 +220,9 @@ export function TrafficView({
   const [selectedId, setSelectedId] = useState<string>();
   const [requestTab, setRequestTab] = useState<'headers' | 'query' | 'body'>('headers');
   const [responseTab, setResponseTab] = useState<'headers' | 'body'>('headers');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [seed, setSeed] = useState<{ trafficId: string; side: 'request' | 'response'; query: string }>();
+  const search = useTrafficSearch(projectId, { enabled: searchOpen });
   const [detailHeight, setDetailHeight] = useState(DETAIL_MIN_PX);
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState<string>();
@@ -315,6 +321,31 @@ export function TrafficView({
     normalizeTabs();
   }, [requestTab, responseTab, showRequestBody, showRequestQuery, showResponseBody]);
 
+  const applySeedTab = useEffectEvent(() => {
+    if (seed === undefined || detail === null || detail.id !== seed.trafficId) return;
+    if (seed.side === 'request' && showRequestBody) setRequestTab('body');
+    if (seed.side === 'response' && showResponseBody) setResponseTab('body');
+  });
+
+  useLayoutEffect(() => {
+    // A search-result open pins the matching body tab once its detail resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    applySeedTab();
+  }, [detail, seed, showRequestBody, showResponseBody]);
+
+  const openSearchResult = useCallback((result: TrafficJsonSearchResult) => {
+    setSelectedId(result.traffic.id);
+    onSelectTraffic(result.traffic.id);
+    setSeed({ trafficId: result.traffic.id, side: result.side, query: search.activeQuery });
+  }, [onSelectTraffic, search.activeQuery]);
+
+  const seededRequestQuery = seed !== undefined && detail?.id === seed.trafficId && seed.side === 'request'
+    ? seed.query
+    : undefined;
+  const seededResponseQuery = seed !== undefined && detail?.id === seed.trafficId && seed.side === 'response'
+    ? seed.query
+    : undefined;
+
   const onResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     dragRef.current = { startY: event.clientY, startHeight: detailHeight };
@@ -398,10 +429,51 @@ export function TrafficView({
           <button type="button" onClick={() => onTogglePaused(!paused)} className="rounded border border-gray-300 bg-white px-2 py-1 text-xs">
             {paused ? 'Updates paused' : 'Live updates'}
           </button>
+          <button
+            type="button"
+            aria-pressed={searchOpen}
+            onClick={() => {
+              setSearchOpen(open => {
+                if (open) search.reset();
+                return !open;
+              });
+            }}
+            className={`rounded border px-2 py-1 text-xs ${searchOpen ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white'}`}
+          >
+            Search JSON
+          </button>
           <button type="button" onClick={onRefresh} className="rounded border border-gray-300 bg-white px-2 py-1 text-xs">Refresh</button>
-          <button type="button" onClick={onClear} className="rounded border border-gray-300 bg-white px-2 py-1 text-xs">Clear</button>
+          <button
+            type="button"
+            onClick={() => {
+              // Cleared Traffic invalidates every retained match.
+              search.reset();
+              setSeed(undefined);
+              onClear();
+            }}
+            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs"
+          >
+            Clear
+          </button>
         </div>
       </div>
+
+      {searchOpen ? (
+        <TrafficSearchPanel
+          query={search.query}
+          onQueryChange={search.setQuery}
+          results={search.results}
+          skipped={search.skipped}
+          activeQuery={search.activeQuery}
+          loading={search.loading}
+          loadingMore={search.loadingMore}
+          error={search.error}
+          hasMore={search.hasMore}
+          onLoadMore={search.loadMore}
+          onOpenResult={openSearchResult}
+          onClose={() => { setSearchOpen(false); search.reset(); }}
+        />
+      ) : null}
 
       <div ref={splitRef} className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-auto" style={{ minHeight: LIST_MIN_PX }}>
@@ -414,6 +486,7 @@ export function TrafficView({
               type="button"
               key={entry.id}
               onClick={() => {
+                setSeed(undefined);
                 setSelectedId(entry.id);
                 onSelectTraffic(entry.id);
               }}
@@ -507,6 +580,7 @@ export function TrafficView({
                       preview={detail.request.preview}
                       cache={exactBodyCache}
                       mode="inspector"
+                      initialSearchQuery={seededRequestQuery}
                     />
                   ) : null}
                 </section>
@@ -540,6 +614,7 @@ export function TrafficView({
                       preview={detail.response.preview}
                       cache={exactBodyCache}
                       mode="inspector"
+                      initialSearchQuery={seededResponseQuery}
                     />
                   ) : null}
                 </section>

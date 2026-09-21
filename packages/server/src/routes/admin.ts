@@ -1,6 +1,7 @@
 import express, { Router } from 'express';
 
 import type { ProjectRepository } from '../repository/project-repository';
+import type { TrafficSearchService } from '../services/traffic-search';
 import type { TrafficService } from '../services/traffic-service';
 import { createStaticFilesRouter } from './static-files';
 import { createBodiesRouter } from './admin/bodies';
@@ -17,6 +18,7 @@ export function createAdminRouter(
   localControlHosts: ReadonlySet<string>,
   traffic: TrafficService,
   getStaticDeliveryBaseUrl: () => string,
+  trafficSearch: TrafficSearchService,
 ): Router {
   const router = Router();
 
@@ -37,7 +39,7 @@ export function createAdminRouter(
     '/projects/:projectId/interception-guidance',
     createInterceptionGuidanceRouter(repository),
   );
-  router.use('/projects/:projectId/traffic', createTrafficRouter(repository, traffic));
+  router.use('/projects/:projectId/traffic', createTrafficRouter(repository, traffic, trafficSearch));
   router.use('/projects/:projectId/import', createImportsRouter(repository));
 
   return router;

@@ -42,6 +42,8 @@ export interface BodyDocumentEditorProps {
   mode: 'editable' | 'readonly';
   mediaType: string;
   searchLabel?: string;
+  /** Pre-fills the visible search toolbar and selects the first match on mount. */
+  initialSearchQuery?: string;
 }
 
 export const LARGE_BODY_MODE_BYTES = 1 * 1024 * 1024;
@@ -250,6 +252,7 @@ export function BodyDocumentEditor({
   mode,
   mediaType,
   searchLabel,
+  initialSearchQuery,
 }: BodyDocumentEditorProps) {
   const parent = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | undefined>(undefined);
@@ -323,6 +326,25 @@ export function BodyDocumentEditor({
       editor.destroy();
     };
   }, [handle, searchLabel]);
+
+  // Seeding dispatches into the existing view; recreating it here would discard
+  // scroll position, selection, and undo history.
+  useLayoutEffect(() => {
+    const editor = view.current;
+    if (editor === undefined
+      || searchLabel === undefined
+      || initialSearchQuery === undefined
+      || initialSearchQuery.length === 0) return;
+    if (getSearchQuery(editor.state).search === initialSearchQuery) return;
+    editor.dispatch({
+      effects: setSearchQuery.of(new SearchQuery({
+        search: initialSearchQuery,
+        caseSensitive: false,
+        literal: true,
+      })),
+    });
+    findNext(editor);
+  }, [initialSearchQuery, searchLabel, snapshot.editorState]);
 
   useLayoutEffect(() => {
     const editor = view.current;

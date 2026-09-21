@@ -488,4 +488,46 @@ describe('TrafficView', () => {
     expect(screen.queryByText(/Promotion outcome is unknown/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Mock This' })).toBeEnabled();
   });
+
+  it('opens JSON search on demand and selects the matching Traffic row', async () => {
+    const onSelectTraffic = vi.fn();
+    const search = vi.spyOn(trafficApi, 'search').mockResolvedValue({
+      searchSessionId: 'sess_1',
+      query: 'needle',
+      results: [{
+        traffic: summary,
+        side: 'response',
+        matchCount: 2,
+        matches: [{ jsonPointer: '/token', kind: 'value', occurrence: 1, snippet: 'needle' }],
+      }],
+      skipped: {
+        unavailable: 0, truncated: 0, evicted: 0, unsupportedEncoding: 0,
+        invalidUtf8: 0, notJson: 0, changedDuringSearch: 0, searchBudgetExceeded: 0,
+      },
+    });
+
+    render(<TrafficView
+      {...props}
+      onSelectTraffic={onSelectTraffic}
+      traffic={[summary]}
+      selectedTraffic={detail}
+      projectId="prj_1"
+    />);
+
+    // Search is opt-in: no panel and no request until the toggle is used.
+    expect(screen.queryByLabelText('Search JSON bodies')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Search JSON' }));
+
+    const input = screen.getByLabelText('Search JSON bodies');
+    fireEvent.change(input, { target: { value: 'needle' } });
+
+    await waitFor(() => expect(screen.getByText('2 matches')).toBeVisible());
+    expect(search).toHaveBeenCalledWith('prj_1', { query: 'needle', limit: 100 }, expect.any(AbortSignal));
+
+    fireEvent.click(screen.getByText('https://api.example.test/playback'));
+    expect(onSelectTraffic).toHaveBeenCalledWith('traffic_1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close JSON search' }));
+    expect(screen.queryByLabelText('Search JSON bodies')).not.toBeInTheDocument();
+  });
 });

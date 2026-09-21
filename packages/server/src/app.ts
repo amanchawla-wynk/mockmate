@@ -293,6 +293,7 @@ export function createApp(options: {
     localControlHosts,
     runtime.traffic,
     getStaticDeliveryBaseUrl,
+    runtime.trafficSearch,
   ));
   app.use('/api/admin', (_request, _response, next) => {
     next(new HttpError(404, 'ADMIN_ROUTE_NOT_FOUND', 'Admin route not found'));

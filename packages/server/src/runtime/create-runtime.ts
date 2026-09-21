@@ -16,6 +16,10 @@ import {
 import { createTrafficBodyBudgetManager, type TrafficBodyBudgetManager } from '../services/traffic-body-budget';
 import { createTrafficBodyCache } from '../services/traffic-body-cache';
 import {
+  createTrafficSearchService,
+  type TrafficSearchService,
+} from '../services/traffic-search';
+import {
   createTrafficService,
   type TrafficService,
 } from '../services/traffic-service';
@@ -63,6 +67,7 @@ export interface RuntimeContext {
   rootDirectory: string;
   repository: ProjectRepository;
   traffic: TrafficService;
+  trafficSearch: TrafficSearchService;
   readonly adminSecurity: AdminSecurityOptions;
   dispose(): Promise<void>;
 }
@@ -137,16 +142,19 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     promotionAcceptor,
     publicationFailpoints,
   }));
+  const trafficSearch = createTrafficSearchService({ traffic });
   const runtime: RuntimeContext = {
     rootDirectory: options.rootDirectory,
     repository,
     traffic,
+    trafficSearch,
     adminSecurity: {
       isAdminRequestLocal: options.isAdminRequestLocal,
       ...(options.dashboardOrigins === undefined ? {} : { dashboardOrigins: options.dashboardOrigins }),
     },
     dispose: async () => {
       try {
+        trafficSearch.dispose();
         await traffic.dispose();
       } finally {
         transportOwners.delete(runtime);

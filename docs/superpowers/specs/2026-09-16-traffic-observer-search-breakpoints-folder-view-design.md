@@ -297,33 +297,43 @@ Validation rules:
 
 - `q` is required after trimming;
 - `limit` is an integer from 1 through 100;
-- malformed, cross-query, or cross-Project cursors return a sanitized `400`;
+- malformed or cross-query cursors return a sanitized `400`;
+- a cursor for a missing, expired, or cross-Project session returns `410`, so a
+  cross-Project cursor cannot be distinguished from an expired one;
 - a cancelled HTTP request cancels pending decoding/search work and releases all
   body leases; and
 - DELETE releases an idle session immediately or marks an active session for
   disposal when its current page settles.
 
-`TrafficStore` gains a bounded immutable metadata-snapshot operation used only
-to create the session. The search service scans session candidates and acquires
-at most two body leases concurrently. It uses streaming content decoding,
-UTF-8 decoding, and JSON tokenization so a single retained body is not copied
-into an additional server-sized `Buffer`. Per-result snippets and paths are
-bounded. There is no search index to maintain when a body is evicted; eviction
-skips only that candidate as `changedDuringSearch`. Traffic clear and restart
-destroy the complete session.
+Sessions are built from the existing bounded `TrafficService.list` snapshot
+rather than a new store operation; that page is already immutable and
+row-limited, so a second snapshot API would duplicate it. The search service
+scans session candidates and holds at most one body lease at a time.
+
+The first release decodes and parses one candidate body at a time into memory
+rather than streaming tokenization. Two ceilings bound that choice: at most
+32 MiB decoded per body, and at most 256 MiB decoded per page. A body over the
+per-body ceiling is skipped as `searchBudgetExceeded` and remains readable
+through the ordinary body route; a page that exhausts its aggregate ceiling
+stops early and returns a cursor so continuing is deliberate. Streaming
+tokenization remains a later optimization, not a correctness requirement.
+
+Per-result snippets and paths are bounded, and the scan stops descending past a
+fixed nesting depth so adversarial documents cannot exhaust the stack. There is
+no search index to maintain when a body is evicted; eviction skips only that
+candidate as `changedDuringSearch`. Traffic clear and restart destroy the
+complete session.
 
 Search uses locale-independent Unicode `toLowerCase` semantics without Unicode
-normalization. Server and dashboard tests use the same definition. Decoded
-search work is capped at 256 MiB per body to constrain compression expansion and
-CPU. A body exceeding this operational search bound is skipped as
-`searchBudgetExceeded`; its exact retained bytes remain available through the
-ordinary body route. Tokenization yields between chunks so search cannot
-monopolize the server event loop.
+normalization. Server and dashboard tests use the same definition.
 
 Body eviction and Traffic clear serialize with leases as they do for body
 viewing and `Mock This`. A leased body may finish its active search. Its result
-is emitted only if the same Project, Traffic ID, generation, side, and digest
-remain current when the match is committed to the page.
+is emitted only if the same Project, Traffic ID, generation, and side remain
+current when the match is committed to the page. Generation is the identity
+guard: a re-captured row always takes a new generation, so carrying a separate
+per-side digest baseline in the session would add cost without adding a
+distinct protection.
 
 ### Traffic UI
 
@@ -356,11 +366,11 @@ response side, complete match count, and representative snippets. Selecting it:
 6. seeds the visible JSON toolbar with the overall query and selects the first
    displayed match.
 
-Search navigation owns a pinned summary independent of the incrementally loaded
-Captured list and current metadata filter. An older or filtered-out result is
-shown as a temporary selected row without mutating list cursors or clearing the
-user's filter. The pin is released when selection changes, Traffic is cleared,
-or the row is no longer retained.
+Search navigation selects the matching row and pins its matching body tab until
+the operator selects another row. Holding a pinned summary for results outside
+the incrementally loaded Captured list, and marking a result stale when its
+evidence is evicted between search and navigation, are deferred follow-ups; the
+first release relies on the normal evicted-body state in the body pane.
 
 If evidence is evicted between search and navigation, the normal evicted-body
 state is shown and the search panel marks the result stale. It does not fall

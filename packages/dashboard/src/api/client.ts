@@ -30,6 +30,7 @@ import type {
   StaticFileEntry,
   TrafficPage,
   TrafficDetail,
+  TrafficJsonSearchPage,
   TrafficPromotionInput,
   TrafficPromotionResult,
   TrafficQuery,
@@ -264,6 +265,24 @@ export const trafficApi = {
     ),
   clear: (projectId: string, signal?: AbortSignal) =>
     json<void>(`${API_BASE}/projects/${segment(projectId)}/traffic`, { method: 'DELETE', signal }),
+  search: (
+    projectId: string,
+    input: { query: string; limit?: number; cursor?: string },
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams({ q: input.query });
+    if (input.limit !== undefined) params.set('limit', String(input.limit));
+    if (input.cursor !== undefined) params.set('cursor', input.cursor);
+    return json<TrafficJsonSearchPage>(
+      `${API_BASE}/projects/${segment(projectId)}/traffic/search?${params}`,
+      { signal },
+    );
+  },
+  deleteSearchSession: (projectId: string, sessionId: string, signal?: AbortSignal) =>
+    json<void>(
+      `${API_BASE}/projects/${segment(projectId)}/traffic/search/${segment(sessionId)}`,
+      { method: 'DELETE', signal },
+    ),
   body: (
     projectId: string,
     trafficId: string,
