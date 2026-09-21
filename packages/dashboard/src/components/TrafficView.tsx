@@ -18,7 +18,10 @@ import type {
 } from '../api/types';
 import type { BodyDocumentCache } from '../state/bodyDocumentCache';
 import { useBodyDocumentCache } from '../state/bodyDocumentCacheContext';
+import { useStoredListTreeView } from '../hooks/useStoredListTreeView';
 import { useTrafficSearch } from '../hooks/useTrafficSearch';
+import { ListTreeViewToggle } from './ListTreeViewToggle';
+import { OriginPathTree } from './OriginPathTree';
 import { TrafficBodyPane } from './TrafficBodyPane';
 import { TrafficSearchPanel } from './TrafficSearchPanel';
 import { blockedCopy, promoteFromTrafficDetail } from './promoteFromTrafficDetail';
@@ -47,6 +50,7 @@ interface TrafficViewProps {
 const LIST_MIN_PX = 8 * 16;
 const DETAIL_MIN_PX = 12 * 16;
 const HANDLE_PX = 4;
+const TRAFFIC_VIEW_STORAGE_KEY = 'mockmate.traffic-view.v1';
 
 function methodColor(method: string): string {
   switch (method) {
@@ -70,6 +74,12 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function compareTrafficNewestFirst(left: TrafficSummary, right: TrafficSummary): number {
+  const completed = right.completedAt < left.completedAt ? -1 : right.completedAt > left.completedAt ? 1 : 0;
+  if (completed !== 0) return completed;
+  return right.id < left.id ? -1 : right.id > left.id ? 1 : 0;
 }
 
 function formatQuery(query: TrafficDetail['request']['query']): string {
@@ -217,6 +227,7 @@ export function TrafficView({
   const providedBodyDocumentCache = useBodyDocumentCache();
   const exactBodyCache = bodyDocumentCache ?? providedBodyDocumentCache;
   const [filter, setFilter] = useState('');
+  const [trafficView, selectTrafficView] = useStoredListTreeView(TRAFFIC_VIEW_STORAGE_KEY);
   const [selectedId, setSelectedId] = useState<string>();
   const [requestTab, setRequestTab] = useState<'headers' | 'query' | 'body'>('headers');
   const [responseTab, setResponseTab] = useState<'headers' | 'body'>('headers');
@@ -296,7 +307,7 @@ export function TrafficView({
   const filtered = useMemo(() => {
     const query = filter.trim().toLowerCase();
     const matched = !query ? traffic : traffic.filter(entry => (
-      `${entry.method} ${entry.path} ${entry.status} ${entry.decision} ${entry.endpoint?.name ?? ''}`
+      `${entry.method} ${entry.origin} ${entry.path} ${entry.status} ${entry.decision} ${entry.endpoint?.name ?? ''}`
         .toLowerCase().includes(query)
     ));
     // Show the most recent call at the top; `traffic` is captured oldest-first.
@@ -338,6 +349,12 @@ export function TrafficView({
     onSelectTraffic(result.traffic.id);
     setSeed({ trafficId: result.traffic.id, side: result.side, query: search.activeQuery });
   }, [onSelectTraffic, search.activeQuery]);
+
+  const selectTraffic = useCallback((trafficId: string) => {
+    setSeed(undefined);
+    setSelectedId(trafficId);
+    onSelectTraffic(trafficId);
+  }, [onSelectTraffic]);
 
   const seededRequestQuery = seed !== undefined && detail?.id === seed.trafficId && seed.side === 'request'
     ? seed.query
@@ -412,12 +429,15 @@ export function TrafficView({
   return (
     <div className="flex h-full flex-col overflow-hidden bg-white">
       <div className="flex min-h-11 flex-shrink-0 flex-wrap items-center justify-between gap-2 border-b border-gray-200 bg-[#F3F3F3] px-3 py-2">
-        <input
-          value={filter}
-          onChange={event => setFilter(event.target.value)}
-          placeholder="Filter traffic..."
-          className="w-full rounded border border-gray-300 px-2 py-1 text-xs shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 sm:w-64"
-        />
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <input
+            value={filter}
+            onChange={event => setFilter(event.target.value)}
+            placeholder="Filter traffic..."
+            className="w-full rounded border border-gray-300 px-2 py-1 text-xs shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 sm:w-64"
+          />
+          <ListTreeViewToggle label="Traffic view" view={trafficView} onChange={selectTrafficView} />
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {loading ? <span className="text-xs text-gray-500">Loading...</span> : null}
           {listError ? <span className="text-xs text-red-600">{listError}</span> : null}
@@ -477,19 +497,17 @@ export function TrafficView({
 
       <div ref={splitRef} className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-auto" style={{ minHeight: LIST_MIN_PX }}>
-          <div className="sticky top-0 hidden grid-cols-[5rem_minmax(0,1fr)_5rem_7rem_5rem_6rem] gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 md:grid">
-            <span>Method</span><span>Origin / path</span><span>Status</span><span>Decision</span><span>Time</span><span>Size</span>
-          </div>
+          {trafficView === 'list' ? (
+            <div className="sticky top-0 hidden grid-cols-[5rem_minmax(0,1fr)_5rem_7rem_5rem_6rem] gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 md:grid">
+              <span>Method</span><span>Origin / path</span><span>Status</span><span>Decision</span><span>Time</span><span>Size</span>
+            </div>
+          ) : null}
           {filtered.length === 0 ? <p className="p-8 text-center text-sm text-gray-400">No traffic captured yet</p> : null}
-          {filtered.map(entry => (
+          {trafficView === 'list' ? filtered.map(entry => (
             <button
               type="button"
               key={entry.id}
-              onClick={() => {
-                setSeed(undefined);
-                setSelectedId(entry.id);
-                onSelectTraffic(entry.id);
-              }}
+              onClick={() => selectTraffic(entry.id)}
               className={`grid w-full grid-cols-[4rem_minmax(0,1fr)_4rem] gap-x-2 gap-y-1 border-b border-gray-100 px-3 py-2 text-left text-xs md:grid-cols-[5rem_minmax(0,1fr)_5rem_7rem_5rem_6rem] md:py-1.5 ${selected?.id === entry.id ? 'bg-blue-500 text-white' : 'hover:bg-gray-50'}`}
             >
               <span className={selected?.id === entry.id ? '' : methodColor(entry.method)}>{entry.method}</span>
@@ -501,7 +519,37 @@ export function TrafficView({
               <span><span className="text-[10px] opacity-60 md:hidden">Time </span>{entry.durationMs} ms</span>
               <span><span className="text-[10px] opacity-60 md:hidden">Size </span>{formatSize(entry.responseBytes)}</span>
             </button>
-          ))}
+          )) : null}
+          {trafficView === 'tree' && filtered.length > 0 ? (
+            <div className="p-2">
+              <OriginPathTree
+                items={filtered}
+                selectedId={selected?.id}
+                ariaLabel="Traffic by origin and path"
+                compareItems={compareTrafficNewestFirst}
+                onSelect={selectTraffic}
+                itemClassName={(_entry, isSelected) => (
+                  isSelected ? 'bg-blue-500 text-white' : 'text-gray-700 hover:bg-gray-50'
+                )}
+                renderItem={(entry, isSelected) => (
+                  <>
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${isSelected ? 'bg-blue-400 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                      {entry.method}
+                    </span>
+                    <span className={`shrink-0 text-xs font-semibold ${isSelected ? '' : statusColor(entry.status)}`}>
+                      {entry.status}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-xs">
+                      {entry.endpoint?.name ?? entry.decision.replace(/_/g, ' ')}
+                    </span>
+                    <span className="shrink-0 text-[10px] opacity-70" title={entry.completedAt}>
+                      {entry.durationMs} ms · {entry.completedAt.slice(11, 19)}
+                    </span>
+                  </>
+                )}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div

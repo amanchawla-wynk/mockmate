@@ -143,7 +143,10 @@ function concurrentTrafficView({
 }
 
 describe('TrafficView', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+  });
 
   it('renders sticky overview fields without the metadata workspace', () => {
     render(<TrafficView {...props} traffic={[summary]} selectedTraffic={detail} projectId="prj_1" />);
@@ -529,5 +532,87 @@ describe('TrafficView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close JSON search' }));
     expect(screen.queryByLabelText('Search JSON bodies')).not.toBeInTheDocument();
+  });
+
+  it('groups every captured exchange by origin and literal path in persisted tree view', async () => {
+    const second: TrafficSummary = {
+      ...summary,
+      id: 'traffic_2',
+      requestId: 'req_2',
+      method: 'POST',
+      completedAt: '2026-01-01T00:00:02.000Z',
+      durationMs: 8,
+      decision: 'endpoint_passthrough',
+      status: 201,
+    };
+    const root: TrafficSummary = {
+      ...summary,
+      id: 'traffic_root',
+      requestId: 'req_root',
+      method: 'DELETE',
+      path: '/',
+      completedAt: '2026-01-01T00:00:03.000Z',
+      durationMs: 3,
+      status: 204,
+    };
+    const otherOrigin: TrafficSummary = {
+      ...summary,
+      id: 'traffic_other',
+      requestId: 'req_other',
+      origin: 'https://admin.example.test',
+      path: '/jobs/{id}',
+      completedAt: '2026-01-01T00:00:04.000Z',
+      durationMs: 4,
+      status: 202,
+    };
+    const onSelectTraffic = vi.fn();
+    const renderResult = render(
+      <TrafficView
+        {...props}
+        traffic={[summary, second, root, otherOrigin]}
+        selectedTraffic={null}
+        projectId="prj_1"
+        onSelectTraffic={onSelectTraffic}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /POST https:\/\/api\.example\.test \/playback/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Tree' }));
+    expect(window.localStorage.getItem('mockmate.traffic-view.v1')).toBe('tree');
+
+    expect(screen.getByRole('treeitem', { name: 'https://api.example.test' }))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('treeitem', { name: 'playback' })).toHaveAttribute('aria-expanded', 'true');
+    const newest = screen.getByRole('treeitem', { name: /POST 201 endpoint passthrough 8 ms/ });
+    const older = screen.getByRole('treeitem', { name: /GET 200 mock 5 ms/ });
+    expect(newest).toHaveAttribute('aria-selected', 'true');
+    expect(newest.compareDocumentPosition(older) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('treeitem', { name: /DELETE 204 mock 3 ms/ })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('treeitem', { name: 'https://admin.example.test' }));
+    fireEvent.click(screen.getByRole('treeitem', { name: 'jobs' }));
+    fireEvent.click(screen.getByRole('treeitem', { name: '{id}' }));
+    expect(screen.getAllByRole('treeitem').filter(item => item.hasAttribute('aria-selected'))).toHaveLength(4);
+
+    fireEvent.click(older);
+    expect(onSelectTraffic).toHaveBeenLastCalledWith('traffic_1');
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    expect(screen.getByRole('button', { name: /GET https:\/\/api\.example\.test \/playback/ }))
+      .toHaveClass('bg-blue-500');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tree' }));
+    fireEvent.change(screen.getByPlaceholderText('Filter traffic...'), { target: { value: 'endpoint_passthrough' } });
+    expect(screen.getAllByRole('treeitem').filter(item => item.hasAttribute('aria-selected'))).toHaveLength(1);
+    renderResult.unmount();
+    render(
+      <TrafficView
+        {...props}
+        traffic={[summary]}
+        selectedTraffic={null}
+        projectId="prj_1"
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Tree' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('tree', { name: 'Traffic by origin and path' })).toBeVisible();
   });
 });

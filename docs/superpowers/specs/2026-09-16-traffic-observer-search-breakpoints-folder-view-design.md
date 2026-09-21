@@ -392,7 +392,7 @@ back to pretending a preview is the matched exact body.
 - Search cancellation releases body leases and bounded decoder/tokenizer state.
 - Clear Traffic immediately clears search results and aborts active search.
 
-## Slice 3: Endpoint Folder View
+## Slice 3: Endpoint And Traffic Folder Views
 
 ### Derivation
 
@@ -422,6 +422,12 @@ Rules:
 - leaves sort by method, then Endpoint name, then stable Endpoint ID; and
 - leaves display a method badge and configured Endpoint name.
 
+Captured Traffic uses the same literal origin-and-path hierarchy, derived from
+the currently filtered `TrafficSummary[]`. Every exchange remains a distinct
+leaf rather than being aggregated by route. Leaves sort newest-first within a
+path and display method, status, decision or matched Endpoint name, duration,
+and completion time.
+
 ### UI
 
 Add a `List | Tree` toggle to the Endpoint list header. List remains the current
@@ -430,6 +436,11 @@ stored locally for the dashboard and does not mutate Project data. The versioned
 key is `mockmate.endpoint-view.v1` with values `list` or `tree`. Missing,
 invalid, or inaccessible browser storage defaults to `list` and never blocks
 rendering.
+
+The Traffic header has an independent `List | Tree` toggle with the same safe
+storage behavior under `mockmate.traffic-view.v1`. Its List mode remains the
+existing newest-first table. Filtering applies before either representation is
+derived.
 
 Selecting a tree leaf invokes the existing Endpoint selection flow. Switching
 views preserves selection. Tree mode expands the selected Endpoint's ancestors.
@@ -443,6 +454,10 @@ unchanged.
 - Root paths, repeated paths, parameter-looking segments, and query/header
   matcher variants remain selectable without collisions.
 - The selected Endpoint survives List/Tree switching and Project refresh.
+- Every filtered captured exchange appears exactly once in Traffic List and
+  Tree modes, including repeated calls to the same origin and path.
+- Traffic selection survives List/Tree switching and opens through the existing
+  detail-selection flow.
 - The view preference survives dashboard reload but does not cross into server
   state.
 - Keyboard focus and expand/collapse semantics use accessible tree roles.
