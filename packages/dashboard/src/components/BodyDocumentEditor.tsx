@@ -354,7 +354,7 @@ export function BodyDocumentEditor({
   }, [snapshot.editorState]);
 
   return (
-    <div className="overflow-hidden rounded-md border border-gray-300 bg-white">
+    <div className="overflow-clip rounded-md border border-gray-300 bg-white">
       {large ? (
         <p className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Large body mode: syntax parsing and line wrapping are disabled above 1 MiB.
