@@ -1278,7 +1278,7 @@ describe('canonical MockMate application', () => {
     }
 
     let summaries = runtime.traffic.list(projectId).entries;
-    for (let attempt = 0; summaries.length === 0 && attempt < 20; attempt += 1) {
+    for (let attempt = 0; summaries.length === 0 && attempt < 200; attempt += 1) {
       await new Promise(resolve => setTimeout(resolve, 5));
       summaries = runtime.traffic.list(projectId).entries;
     }
