@@ -543,7 +543,7 @@ export function TrafficView({
                       {entry.endpoint?.name ?? entry.decision.replace(/_/g, ' ')}
                     </span>
                     <span className="shrink-0 text-[10px] opacity-70" title={entry.completedAt}>
-                      {entry.durationMs} ms · {entry.completedAt.slice(11, 19)}
+                      {entry.durationMs} ms · {entry.completedAt.slice(0, 19).replace('T', ' ')}Z
                     </span>
                   </>
                 )}

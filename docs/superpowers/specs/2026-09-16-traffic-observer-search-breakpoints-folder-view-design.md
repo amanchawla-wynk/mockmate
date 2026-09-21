@@ -426,7 +426,9 @@ Captured Traffic uses the same literal origin-and-path hierarchy, derived from
 the currently filtered `TrafficSummary[]`. Every exchange remains a distinct
 leaf rather than being aggregated by route. Leaves sort newest-first within a
 path and display method, status, decision or matched Endpoint name, duration,
-and completion time.
+and unambiguous completion date/time. The dashboard requests the server's
+1,000-row page maximum, which covers the complete default 500-row retained
+Traffic window.
 
 ### UI
 

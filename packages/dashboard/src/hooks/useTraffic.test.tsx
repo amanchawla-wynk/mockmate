@@ -85,7 +85,7 @@ describe('useTraffic', () => {
     const { result } = renderHook(() => useTraffic('prj_1', { pollIntervalMs: 60_000 }));
     await waitFor(() => expect(result.current.entries.map(entry => entry.id)).toEqual(['traffic_1']));
     expect(fetch).toHaveBeenCalledWith(
-      '/api/admin/projects/prj_1/traffic?limit=100',
+      '/api/admin/projects/prj_1/traffic?limit=1000',
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
@@ -126,7 +126,7 @@ describe('useTraffic', () => {
     await act(async () => { refreshed = await result.current.refresh(); });
     expect(refreshed).toBe(true);
     expect(fetch).toHaveBeenCalledWith(
-      '/api/admin/projects/prj_1/traffic?afterId=traffic_1&limit=100',
+      '/api/admin/projects/prj_1/traffic?afterId=traffic_1&limit=1000',
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(result.current.entries.map(entry => entry.id)).toEqual(['traffic_1', 'traffic_2']);

@@ -45,6 +45,10 @@ interface OperationOwner {
   controller: AbortController;
 }
 
+// The server retains 500 rows per Project by default and accepts up to 1,000
+// per page, so one request covers the complete retained Traffic window.
+const TRAFFIC_LIST_LIMIT = 1000;
+
 function operationError(error: unknown, fallback: string): Error {
   return error instanceof Error ? error : new Error(fallback);
 }
@@ -91,7 +95,7 @@ export function useTraffic(
     try {
       const page = await trafficApi.list(
         projectId,
-        { ...(cursor.current === undefined ? {} : { afterId: cursor.current }), limit: 100 },
+        { ...(cursor.current === undefined ? {} : { afterId: cursor.current }), limit: TRAFFIC_LIST_LIMIT },
         controller.signal,
       );
       if (listOperation.current !== operation || projectOwner.current !== operationOwner) return false;
